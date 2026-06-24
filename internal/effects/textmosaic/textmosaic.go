@@ -100,7 +100,7 @@ func Generate(conf Config) (image.Image, error) {
 		)
 	}
 
-	conf.Logger.Debug("drawing text mosaic", "text_length", len(txt))
+	conf.Logger.Debug("drawing text mosaic", "text_runes", len(txt))
 
 	// Draw the colored text on a transparent canvas
 	result := drawTextMosaic(font, canvas, processed, txt)
