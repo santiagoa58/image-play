@@ -61,6 +61,12 @@ type wordCloudOptions struct {
 	workWidth                  int
 }
 
+// registerWordCloudFlags exposes both product-level controls and low-level
+// engine escape hatches. The intended simple user path is:
+// input image + text + wordcloud effect + optional -word-scale/-quality.
+// Most mask/color/placement flags exist so bad auto-detection cases can be
+// debugged without changing code; they should stay behind -help-advanced in any
+// future UI.
 func registerWordCloudFlags(fs *flag.FlagSet, opts *wordCloudOptions) {
 	fs.StringVar(&opts.packingProfile, "packing-profile", "", `Word cloud: packing profile: "", "binary-silhouette", "tonal-detail", or "foreground-background"`)
 	fs.StringVar(&opts.qualityPreset, "quality", "", `Word cloud: quality preset: "", "fast", "balanced", "dense", or "poster". Empty = auto`)
@@ -223,6 +229,10 @@ func resolveWordCloudAutoOptions(img image.Image, opts wordCloudOptions) wordClo
 		return opts
 	}
 
+	// Poster-like images usually have a near-solid dark border and saturated,
+	// high-contrast subject colors. For these, a contrast mask is better than a
+	// simple dark/light threshold because both bright highlights and red/orange
+	// midtones are part of the subject.
 	if looksLikeHighContrastPoster(img) {
 		opts.packingProfile = wordcloud.PackingProfileBinarySilhouette
 		if opts.maskType == "" {
@@ -267,6 +277,10 @@ func resolveWordCloudAutoOptions(img image.Image, opts wordCloudOptions) wordClo
 		return opts
 	}
 
+	// Bright-background subject images behave more like product/silhouette
+	// examples: most of the canvas is white, and the subject itself should become
+	// the playable region. The lightweight foreground mask is enough here and
+	// avoids the heavier foreground/background layer.
 	if looksLikeForegroundOnLightBackground(img) {
 		opts.packingProfile = wordcloud.PackingProfileTonalDetail
 		if opts.maskType == "" {
@@ -302,6 +316,9 @@ func resolveWordCloudAutoOptions(img image.Image, opts wordCloudOptions) wordClo
 		return opts
 	}
 
+	// General photos use two layers. The background layer uses larger/sparser
+	// words so it stays readable and softer; the foreground layer gets denser
+	// packing so people/objects carry more visual detail.
 	opts.packingProfile = wordcloud.PackingProfileForegroundBackground
 	if opts.qualityPreset == "" {
 		opts.qualityPreset = wordcloud.QualityPresetBalanced
@@ -360,6 +377,9 @@ func looksLikeHighContrastPoster(img image.Image) bool {
 		return false
 	}
 
+	// Saturation in the central region separates graphic/poster art from a plain
+	// black silhouette. This keeps the source-derived palette path from triggering
+	// on simple masks where grayscale defaults are usually safer.
 	center := image.Rect(
 		bounds.Min.X+w/5,
 		bounds.Min.Y+h/8,
@@ -494,6 +514,9 @@ func deriveSourcePalette(img image.Image, maxColors int) []color.Color {
 	sort.Slice(samples, func(i, j int) bool {
 		return samples[i].lum < samples[j].lum
 	})
+	// Pick luminance-spaced colors rather than the most common colors. Common
+	// colors are often background-adjacent; spaced colors preserve a useful dark to
+	// light range for word contrast.
 	palette := make([]color.Color, 0, maxColors)
 	for i := 0; i < maxColors; i++ {
 		index := int(math.Round(float64(i) * float64(len(samples)-1) / float64(max(1, maxColors-1))))

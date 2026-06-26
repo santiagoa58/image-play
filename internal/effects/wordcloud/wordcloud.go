@@ -16,6 +16,23 @@ import (
 	"github.com/fogleman/gg"
 )
 
+// Engine overview:
+//
+//  1. Resize the source image to the working resolution.
+//  2. Convert the image into a playable mask. A playable pixel is a location
+//     where visible glyph pixels are allowed to land.
+//  3. Parse the text into weighted word candidates plus smaller filler words.
+//  4. Render each candidate into a glyph alpha bitmap.
+//  5. Search candidate positions with an Archimedean spiral from several anchors.
+//  6. Accept a placement only when rendered glyph pixels are inside the mask and
+//     do not collide with already stamped glyph pixels.
+//
+// The important mathematical model is glyph pixels, not word rectangles:
+//
+//	rendered glyph alpha pixels intersect playable source mask intersect occupied pixels
+//
+// Rectangles are used only as a cheap broad-phase filter for "could these words
+// be near each other"; the exact decision is made at glyph-pixel level.
 const (
 	PackingProfileBinarySilhouette     = "binary-silhouette"
 	PackingProfileTonalDetail          = "tonal-detail"
@@ -340,10 +357,15 @@ func GenerateResult(conf Config) (Result, error) {
 		img = imaging.Resize(img, conf.TargetWidth, 0, imaging.Lanczos)
 	}
 	bounds := img.Bounds()
+	// Direct glyph packing is memory and CPU proportional to pixel count. The
+	// guard prevents accidental huge renders while still allowing normal 4K.
 	if bounds.Dx()*bounds.Dy() > cfg.maxPixels {
 		return Result{}, fmt.Errorf("input image has %d pixels after resize, max is %d; lower the render width or raise the max pixel limit for direct large renders", bounds.Dx()*bounds.Dy(), cfg.maxPixels)
 	}
 
+	// The base mask defines the total playable area. A foreground mask can either
+	// clip this area for subject-only output or split it into foreground/background
+	// layers for photo-like output.
 	mask, err := buildMask(img, cfg.maskType, cfg.maskThreshold, cfg.alphaThreshold, cfg.inferBackground)
 	if err != nil {
 		return Result{}, err
@@ -387,6 +409,8 @@ func GenerateResult(conf Config) (Result, error) {
 		"size", fmt.Sprintf("%dx%d", mask.width, mask.height),
 	)
 
+	// Larger/frequent words are attempted first. This is important because late
+	// large words almost never fit once the occupancy map is fragmented.
 	candidates := buildHierarchy(stats, cfg.minFontSize, cfg.maxFontSize, cfg.fillerWordCount, cfg.sizeExponent, cfg.fillerMaxScale, rand.New(rand.NewSource(cfg.seed)))
 	p := newPacker(mask, img, conf.FontPath, cfg)
 	placed := p.pack(candidates)
@@ -405,6 +429,9 @@ func GenerateResult(conf Config) (Result, error) {
 }
 
 func generateForegroundBackgroundResult(baseMask *shapeMask, img image.Image, fontPath string, stats []wordStat, cfg settings, foregroundBits []bool) (Result, error) {
+	// The foreground/background profile is a pragmatic depth simulation:
+	// background words are larger and sparser, foreground words are smaller and
+	// denser. It is not a true depth map; it depends on the supplied/derived mask.
 	foregroundMask := deriveMask(baseMask, func(index int) bool {
 		return baseMask.bits[index] && foregroundBits[index]
 	})
@@ -467,6 +494,8 @@ func generateForegroundBackgroundResult(baseMask *shapeMask, img image.Image, fo
 
 func backgroundLayerSettings(cfg settings, uniqueWords int) settings {
 	bg := cfg
+	// Background should read like soft context, not fine detail. This intentionally
+	// suppresses micro-fill and pushes word sizes toward the upper half.
 	bg.minFontSize = max(cfg.minFontSize+2, int(math.Round(float64(cfg.maxFontSize)*0.45)))
 	bg.maxFontSize = cfg.maxFontSize
 	if bg.minFontSize > bg.maxFontSize {
@@ -676,6 +705,8 @@ func normalizeConfig(conf Config) (settings, error) {
 }
 
 func applyQualityPresetDefaults(conf Config) (Config, error) {
+	// Quality presets mostly control how hard the search tries, not the visual
+	// profile. More attempts and more filler increase coverage but can be slow.
 	switch conf.QualityPreset {
 	case "":
 		return conf, nil
@@ -741,6 +772,8 @@ func applyQualityPresetDefaults(conf Config) (Config, error) {
 }
 
 func applyPackingProfileDefaults(conf Config) (Config, error) {
+	// Packing profiles encode image semantics. They should stay relatively few:
+	// silhouette/poster, tonal subject, and photo foreground/background.
 	switch conf.PackingProfile {
 	case "":
 		return conf, nil
@@ -841,6 +874,9 @@ func buildMask(img image.Image, maskType string, threshold float64, alphaThresho
 		threshold = 0.18
 	}
 
+	// MaskTypeLight/Dark are simple luminance thresholds. MaskTypeContrast is more
+	// generic for artwork because it accepts pixels that differ from the border
+	// background by either accessibility-style luminance contrast or color distance.
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			index := y*w + x
@@ -888,6 +924,9 @@ func buildMask(img image.Image, maskType string, threshold float64, alphaThresho
 		return nil, errors.New("mask has no playable pixels; adjust mask type or threshold")
 	}
 
+	// Detail is a cheap luminance gradient. It is not used for collision; it only
+	// biases optional anchors/final fill toward image features such as edges,
+	// facial details, or poster highlights.
 	mask.computeDetail()
 	mask.centerX = sumX / float64(mask.playablePx)
 	mask.centerY = sumY / float64(mask.playablePx)
@@ -931,6 +970,8 @@ func estimatedBackgroundRGBA(img image.Image) (float64, float64, float64, float6
 }
 
 func backgroundContrastScore(r, g, b, bgR, bgG, bgB float64) float64 {
+	// Combine WCAG-like luminance contrast with Euclidean RGB distance. Either one
+	// can make a pixel visually separate from the background.
 	lum := relativeLuminance(r, g, b)
 	bgLum := relativeLuminance(bgR, bgG, bgB)
 	contrastRatio := (math.Max(lum, bgLum) + 0.05) / (math.Min(lum, bgLum) + 0.05)
@@ -952,6 +993,8 @@ func relativeLuminance(r, g, b float64) float64 {
 func buildForegroundBits(maskImg image.Image, baseMask *shapeMask, threshold float64, alphaThreshold float64) ([]bool, error) {
 	bounds := maskImg.Bounds()
 	if bounds.Dx() != baseMask.width || bounds.Dy() != baseMask.height {
+		// Foreground masks are semantic labels, not photographic detail. Nearest
+		// neighbor preserves hard labels when matching the working resolution.
 		maskImg = imaging.Resize(maskImg, baseMask.width, baseMask.height, imaging.NearestNeighbor)
 		bounds = maskImg.Bounds()
 	}
@@ -980,6 +1023,8 @@ func buildForegroundBits(maskImg image.Image, baseMask *shapeMask, threshold flo
 }
 
 func deriveMask(base *shapeMask, include func(index int) bool) *shapeMask {
+	// Derived masks share luminance/detail arrays with the base mask; only the
+	// playable bitset changes. This keeps foreground/background layers cheap.
 	mask := &shapeMask{
 		width:     base.width,
 		height:    base.height,
@@ -1033,6 +1078,9 @@ func (m *shapeMask) computeDetail() {
 }
 
 func parseWordStats(text string, cfg settings) ([]wordStat, error) {
+	// This parser is intentionally modest. Future phrase weighting/custom word
+	// lists should probably happen before this package rather than complicating
+	// the core packer.
 	fields := strings.FieldsFunc(text, func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsNumber(r) && r != '\'' && r != '-'
 	})
@@ -1094,6 +1142,9 @@ func buildHierarchy(stats []wordStat, minFontSize, maxFontSize, fillerWordCount 
 	maxCount := stats[0].Count
 	candidates := make([]wordCandidate, 0, len(stats)+fillerWordCount)
 
+	// Primary candidates preserve the frequency hierarchy. The exponent controls
+	// how dramatic the hierarchy is: 0.5 flattens differences; larger values make
+	// the most frequent words dominate.
 	for _, stat := range stats {
 		weight := math.Pow(float64(stat.Count)/float64(maxCount), exponent)
 		size := float64(minFontSize) + weight*float64(maxFontSize-minFontSize)
@@ -1110,6 +1161,9 @@ func buildHierarchy(stats []wordStat, minFontSize, maxFontSize, fillerWordCount 
 	}
 	sizeRange := float64(maxFontSize - minFontSize)
 	for i := 0; i < fillerWordCount; i++ {
+		// Filler candidates taper from small-ish to minimum size. They preserve the
+		// silhouette edges but are also the first place to reduce work when text gets
+		// too tiny or performance is poor.
 		level := float64(i) / float64(max(1, fillerWordCount-1))
 		size := float64(minFontSize) + sizeRange*fillerMaxScale*math.Pow(1-level, 2)
 		candidates = append(candidates, wordCandidate{
@@ -1136,6 +1190,9 @@ func weightedWord(stats []wordStat, totalWeight int, rng *rand.Rand) string {
 }
 
 func newPacker(mask *shapeMask, source image.Image, fontPath string, cfg settings) *packer {
+	// Spatial hash cell size is a broad-phase acceleration parameter. It does not
+	// define the minimum font size or final collision behavior; it only reduces how
+	// often we need to scan the occupancy map.
 	cellSize := max(cfg.minFontSize*3, 12)
 	anchors := mask.anchors()
 	if cfg.detailPlacementBias > 0 {
@@ -1190,6 +1247,9 @@ func appendUniqueAnchors(base []pointF, extra []pointF) []pointF {
 }
 
 func (p *packer) pack(candidates []wordCandidate) []placedWord {
+	// Greedy placement is intentional: high-priority words get first access to the
+	// open mask. Backtracking would improve coverage but would be much slower and
+	// harder to make deterministic.
 	placed := make([]placedWord, 0, len(candidates))
 	for i, candidate := range candidates {
 		p.stats.AttemptedWords++
@@ -1214,6 +1274,8 @@ func (p *packer) finalFill(stats []wordStat) []placedWord {
 
 	total := p.finalFillPasses * len(stats)
 	for pass := 0; pass < total; pass++ {
+		// Final fill does not walk the original hierarchy. It asks "where is there
+		// still empty playable space?" and tries small words near those regions.
 		anchor, ok := p.findFinalFillAnchor()
 		if !ok {
 			return placed
@@ -1242,6 +1304,8 @@ func (p *packer) findFinalFillAnchor() (pointF, bool) {
 	bestIndex := -1
 	bestScore := -1
 	for i := 0; i < p.finalFillAnchorSamples; i++ {
+		// Random sampling keeps this cheap. We score a small neighborhood rather
+		// than computing connected components of every remaining empty region.
 		index := p.mask.playableIndexes[p.layoutRNG.Intn(len(p.mask.playableIndexes))]
 		if p.occupancy[index] {
 			continue
@@ -1299,6 +1363,9 @@ func (p *packer) placeWithAnchor(candidate wordCandidate, index int, preferredAn
 	if index < p.heroWordCount {
 		attemptLimit = p.maxHeroAttempts
 	}
+	// Retry smaller sizes before giving up. This is a practical compromise between
+	// preserving the requested hierarchy and keeping words from disappearing when
+	// the mask gets fragmented.
 	for _, size := range retrySizes(candidate.Size, float64(p.minFontSize)) {
 		rotations := []bool{false, true}
 		if p.layoutRNG.Intn(2) == 1 {
@@ -1350,6 +1417,8 @@ func (p *packer) placeWithAnchor(candidate wordCandidate, index int, preferredAn
 }
 
 func retrySizes(size, minSize float64) []float64 {
+	// The minimum size is the real lower bound; it must not be tied to spatial hash
+	// cell size or any other acceleration structure.
 	sizes := []float64{size}
 	for _, factor := range []float64{0.82, 0.66, 0.50} {
 		next := math.Max(minSize, math.Round(size*factor))
@@ -1453,6 +1522,8 @@ func renderGlyphBitmap(fontPath string, word string, size float64, alphaThreshol
 }
 
 func rotateGlyph(src *glyphBitmap) *glyphBitmap {
+	// Rotation is done on the trimmed glyph pixels, not the original canvas. That
+	// keeps collision bounds tight and avoids treating empty canvas as occupied.
 	pixels := make([]glyphPixel, len(src.pixels))
 	for i, pixel := range src.pixels {
 		pixels[i] = glyphPixel{
@@ -1479,6 +1550,8 @@ func rotateGlyph(src *glyphBitmap) *glyphBitmap {
 }
 
 func pixelsToSpans(pixels []glyphPixel) []glyphSpan {
+	// Spans are kept for future optimization. Current exact collision still walks
+	// pixels because padding is radial and easier to reason about per pixel.
 	if len(pixels) == 0 {
 		return nil
 	}
@@ -1536,6 +1609,8 @@ func (p *packer) search(glyph *glyphBitmap, index int, attemptLimit int, preferr
 			}
 			attempts++
 			p.stats.PlacementChecks++
+			// Archimedean spiral: radius grows linearly with theta. This gives a
+			// center-out search around each anchor while still covering the full mask.
 			radius := spacing * theta
 			centerX := anchor.x + radius*math.Cos(theta)
 			centerY := anchor.y + radius*math.Sin(theta)
@@ -1552,6 +1627,9 @@ func (p *packer) search(glyph *glyphBitmap, index int, attemptLimit int, preferr
 }
 
 func (m *shapeMask) anchors() []pointF {
+	// Multiple anchors avoid the "single centroid spiral" problem where complex
+	// shapes leave distant lobes or holes under-filled. Anchors are cheap samples,
+	// not exact maximal empty rectangles.
 	points := []pointF{{x: m.centerX, y: m.centerY}}
 	addPoint := func(x, y int) {
 		if !m.playable(x, y) {
@@ -1592,6 +1670,8 @@ func (m *shapeMask) distancePeakAnchors(limit int) []pointF {
 			if !m.playable(x, y) {
 				continue
 			}
+			// Approximate largest-inscribed-region search. It favors anchor points
+			// that are far from the mask boundary, which are good places for large words.
 			score := m.approxDistanceToBoundary(x, y, step)
 			candidates = append(candidates, candidate{x: x, y: y, score: score})
 		}
@@ -1704,6 +1784,8 @@ func (p *packer) canPlace(glyph *glyphBitmap, x int, y int) bool {
 		return false
 	}
 	if p.hash.hasOverlap(box.expand(p.wordPadding)) {
+		// Rectangle overlap only means "worth checking." The actual rejection is
+		// still glyph pixels against the occupancy map.
 		if p.glyphOverlapsOccupied(glyph, x, y) {
 			p.stats.CollisionCheckFailures++
 			return false
@@ -1717,6 +1799,8 @@ func (p *packer) canPlace(glyph *glyphBitmap, x int, y int) bool {
 }
 
 func (p *packer) glyphInsideMask(glyph *glyphBitmap, x int, y int) bool {
+	// Exact mask containment: only visible glyph pixels must be inside the shape.
+	// Empty bounding-box space is allowed to hang over holes or outside edges.
 	for _, pixel := range glyph.pixels {
 		if !p.mask.playable(x+pixel.x, y+pixel.y) {
 			return false
@@ -1727,6 +1811,8 @@ func (p *packer) glyphInsideMask(glyph *glyphBitmap, x int, y int) bool {
 
 func (p *packer) glyphOverlapsOccupied(glyph *glyphBitmap, x int, y int) bool {
 	padding := p.wordPadding
+	// Word padding is modeled as a small radial dilation around occupied glyph
+	// pixels. This improves readability at the cost of density.
 	for _, pixel := range glyph.pixels {
 		for dy := -padding; dy <= padding; dy++ {
 			targetY := y + pixel.y + dy
@@ -1752,6 +1838,8 @@ func (p *packer) glyphOverlapsOccupied(glyph *glyphBitmap, x int, y int) bool {
 
 func (p *packer) stamp(word placedWord) {
 	padding := p.wordPadding
+	// Stamping writes the accepted glyph into the occupancy map. The visual draw
+	// happens later; this map is only for future collision checks.
 	for _, pixel := range word.glyph.pixels {
 		for dy := -padding; dy <= padding; dy++ {
 			targetY := word.y + pixel.y + dy
