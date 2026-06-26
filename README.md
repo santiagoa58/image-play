@@ -151,15 +151,20 @@ Use inline text:
   -width 1080
 ```
 
+Text mosaic defaults use a modest contrast boost and synthetic text weight so letters read clearly without requiring a separate bold font. Use `-contrast 0` and `-text-weight 1` for the lighter original rendering style.
+
 ### Word Cloud Presets
 
 The word cloud effect auto-selects a sensible mode when `-packing-profile` is omitted:
 
 - Bright-background subject images use a dense foreground-only tonal profile.
 - Full photos use a foreground/background profile with OpenCV foreground segmentation.
+- Dark, high-contrast poster images use a contrast mask and source-derived palette.
 - Clean silhouette masks can be controlled explicitly with `-packing-profile binary-silhouette`.
 
-The automatic presets favor readable words over maximum coverage. To make words larger and clearer, increase `-min-font-size`, reduce `-density`, reduce `-final-fill-passes`, or add `-word-padding 1`. To push toward poster-style dense packing, use `-quality dense` or `-quality poster` with a higher `-density`.
+The automatic presets favor readable words over maximum coverage. To make words larger and clearer, increase `-min-font-size`, reduce `-density`, reduce `-final-fill-passes`, or add `-word-padding 1`. To push toward poster-style dense packing, use `-quality dense` or `-quality poster` with a higher `-density`. Poster-style color defaults are derived from the input image itself.
+
+Large outputs are supported. For speed, word cloud generation automatically packs large requests at an internal width of 1920 pixels and then resizes to the requested `-width`. Use `-work-width` to control that tradeoff: lower values are faster, while `-work-width` equal to `-width` gives direct high-resolution packing. The direct-render safety limit is controlled by `-max-pixels`.
 
 Example palette-driven silhouette:
 

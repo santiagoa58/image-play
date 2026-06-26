@@ -57,6 +57,8 @@ type wordCloudOptions struct {
 	minWordLength              int
 	maxWordLength              int
 	stopWords                  string
+	maxPixels                  int
+	workWidth                  int
 }
 
 func registerWordCloudFlags(fs *flag.FlagSet, opts *wordCloudOptions) {
@@ -95,10 +97,16 @@ func registerWordCloudFlags(fs *flag.FlagSet, opts *wordCloudOptions) {
 	fs.IntVar(&opts.minWordLength, "min-word-length", 0, "Word cloud: minimum parsed word length. 0 = default")
 	fs.IntVar(&opts.maxWordLength, "max-word-length", 0, "Word cloud: maximum parsed word length. 0 = no limit")
 	fs.StringVar(&opts.stopWords, "stop-words", "", "Word cloud: comma-separated words to exclude")
+	fs.IntVar(&opts.maxPixels, "max-pixels", 0, "Word cloud: max pixels for direct internal packing. 0 = 4K-safe default")
+	fs.IntVar(&opts.workWidth, "work-width", 0, "Word cloud: internal packing width. 0 = auto; lower is faster, higher is sharper")
 }
 
 func generateWordCloud(logger *slog.Logger, img image.Image, text string, fontPath string, targetWidth int, opts wordCloudOptions) (wordcloud.Result, error) {
 	opts = resolveWordCloudAutoOptions(img, opts)
+	renderWidth, err := resolveWordCloudWorkWidth(targetWidth, opts.workWidth)
+	if err != nil {
+		return wordcloud.Result{}, err
+	}
 	maskThreshold, err := optionalUnitFloat(opts.maskThreshold, "mask threshold")
 	if err != nil {
 		return wordcloud.Result{}, err
@@ -140,7 +148,7 @@ func generateWordCloud(logger *slog.Logger, img image.Image, text string, fontPa
 		Logger:                     logger,
 		Text:                       text,
 		InputImage:                 img,
-		TargetWidth:                targetWidth,
+		TargetWidth:                renderWidth,
 		FontPath:                   fontPath,
 		ForegroundMask:             foregroundMask,
 		PackingProfile:             opts.packingProfile,
@@ -170,6 +178,7 @@ func generateWordCloud(logger *slog.Logger, img image.Image, text string, fontPa
 		MinWordLength:              opts.minWordLength,
 		MaxWordLength:              opts.maxWordLength,
 		StopWords:                  stopWords,
+		MaxPixels:                  opts.maxPixels,
 	}
 	if opts.wordPadding >= 0 {
 		conf.WordPadding = opts.wordPadding
@@ -180,7 +189,33 @@ func generateWordCloud(logger *slog.Logger, img image.Image, text string, fontPa
 		conf.FinalFillPassesSet = true
 	}
 
-	return wordcloud.GenerateResult(conf)
+	result, err := wordcloud.GenerateResult(conf)
+	if err != nil {
+		return wordcloud.Result{}, err
+	}
+	if targetWidth > 0 && renderWidth > 0 && targetWidth != renderWidth {
+		result.Image = imaging.Resize(result.Image, targetWidth, 0, imaging.Lanczos)
+	}
+	return result, nil
+}
+
+func resolveWordCloudWorkWidth(targetWidth, workWidth int) (int, error) {
+	if workWidth < 0 {
+		return 0, errors.New("word cloud work width cannot be negative")
+	}
+	if targetWidth < 0 {
+		return 0, errors.New("target width cannot be negative")
+	}
+	if targetWidth == 0 {
+		return workWidth, nil
+	}
+	if workWidth > 0 {
+		return workWidth, nil
+	}
+	if targetWidth > 1920 {
+		return 1920, nil
+	}
+	return targetWidth, nil
 }
 
 func resolveWordCloudAutoOptions(img image.Image, opts wordCloudOptions) wordCloudOptions {

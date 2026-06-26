@@ -417,6 +417,12 @@ func TestGenerateResultRejectsImagesOverMaxPixels(t *testing.T) {
 	}
 }
 
+func TestDefaultMaxPixelsAllowsPortrait4K(t *testing.T) {
+	if defaultMaxPixels < 3840*4096 {
+		t.Fatalf("defaultMaxPixels = %d; want enough headroom for portrait 4K", defaultMaxPixels)
+	}
+}
+
 func TestWordPaddingRejectsNearbyGlyphPixels(t *testing.T) {
 	mask := fullMask(20, 20)
 	cfg := testSettings()

@@ -108,3 +108,23 @@ func TestResolveWordCloudAutoOptionsSelectsHighContrastPoster(t *testing.T) {
 		t.Fatal("expected palette to be derived from the input image")
 	}
 }
+
+func TestResolveWordCloudWorkWidthAutoCapsLargeOutput(t *testing.T) {
+	got, err := resolveWordCloudWorkWidth(3840, 0)
+	if err != nil {
+		t.Fatalf("resolveWordCloudWorkWidth returned error: %v", err)
+	}
+	if got != 1920 {
+		t.Fatalf("expected large output to auto-pack at 1920px, got %d", got)
+	}
+}
+
+func TestResolveWordCloudWorkWidthAllowsDirectRenderOverride(t *testing.T) {
+	got, err := resolveWordCloudWorkWidth(3840, 3840)
+	if err != nil {
+		t.Fatalf("resolveWordCloudWorkWidth returned error: %v", err)
+	}
+	if got != 3840 {
+		t.Fatalf("expected explicit work width to be honored, got %d", got)
+	}
+}

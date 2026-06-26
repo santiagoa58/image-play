@@ -48,7 +48,7 @@ const (
 	defaultMaxPlacementAttempts   = 3000
 	defaultFillerMaxScale         = 0.25
 	defaultFinalFillAnchorSamples = 32
-	defaultMaxPixels              = 8_000_000
+	defaultMaxPixels              = 32_000_000
 	defaultSizeExponent           = 0.50
 	defaultHeroWordCount          = 6
 	defaultDetailPlacementBias    = 0.0
@@ -341,7 +341,7 @@ func GenerateResult(conf Config) (Result, error) {
 	}
 	bounds := img.Bounds()
 	if bounds.Dx()*bounds.Dy() > cfg.maxPixels {
-		return Result{}, fmt.Errorf("input image has %d pixels after resize, max is %d", bounds.Dx()*bounds.Dy(), cfg.maxPixels)
+		return Result{}, fmt.Errorf("input image has %d pixels after resize, max is %d; lower the render width or raise the max pixel limit for direct large renders", bounds.Dx()*bounds.Dy(), cfg.maxPixels)
 	}
 
 	mask, err := buildMask(img, cfg.maskType, cfg.maskThreshold, cfg.alphaThreshold, cfg.inferBackground)

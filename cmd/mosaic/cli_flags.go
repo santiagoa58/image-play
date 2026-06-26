@@ -67,7 +67,9 @@ func configureUsage(fs *flag.FlagSet) {
 		fmt.Fprint(out, "  -text-file     UTF-8 text file for the effect\n")
 		fmt.Fprint(out, "  -font          optional font path; defaults to bundled font\n")
 		fmt.Fprint(out, "  -quality       wordcloud quality: fast, balanced, dense, poster\n")
-		fmt.Fprint(out, "  -bw            textmosaic black-and-white mode\n\n")
+		fmt.Fprint(out, "  -work-width    wordcloud internal packing width for speed/sharpness\n")
+		fmt.Fprint(out, "  -bw            textmosaic black-and-white mode\n")
+		fmt.Fprint(out, "  -text-weight   textmosaic weight from 1..4\n\n")
 		fmt.Fprint(out, "Run with -help-advanced for every tuning flag.\n")
 	}
 }
