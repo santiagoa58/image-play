@@ -41,6 +41,41 @@ func TestBuildMaskFindsLightShapeAndBackground(t *testing.T) {
 	}
 }
 
+func TestBuildMaskContrastKeepsDarkSaturatedPixelsOnBlack(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 12, 10))
+	for y := 0; y < 10; y++ {
+		for x := 0; x < 12; x++ {
+			img.Set(x, y, color.RGBA{1, 1, 1, 255})
+		}
+	}
+	for y := 2; y < 8; y++ {
+		for x := 2; x < 6; x++ {
+			img.Set(x, y, color.RGBA{88, 8, 10, 255})
+		}
+	}
+	for y := 2; y < 8; y++ {
+		for x := 7; x < 10; x++ {
+			img.Set(x, y, color.RGBA{5, 5, 5, 255})
+		}
+	}
+
+	threshold := 0.12
+	mask, err := buildMask(img, MaskTypeContrast, threshold, 0.1, false)
+	if err != nil {
+		t.Fatalf("buildMask returned error: %v", err)
+	}
+
+	if !mask.playable(3, 4) {
+		t.Fatal("expected saturated dark red pixels to be playable against black")
+	}
+	if mask.playable(8, 4) {
+		t.Fatal("expected near-black pixels to remain negative space")
+	}
+	if mask.playable(0, 0) {
+		t.Fatal("expected background pixels to be blocked")
+	}
+}
+
 func TestBuildHierarchyOrdersLargeWordsBeforeDenseFillers(t *testing.T) {
 	stats := []wordStat{
 		{Word: "ALPHA", Count: 9},

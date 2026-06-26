@@ -35,6 +35,9 @@ const (
 	MaskTypeLight = "light"
 	MaskTypeDark  = "dark"
 	MaskTypeAll   = "all"
+	// MaskTypeContrast fills pixels that visually separate from the inferred or
+	// explicit background by luminance contrast or color distance.
+	MaskTypeContrast = "contrast"
 
 	defaultMaxFontSize            = 96
 	defaultMinFontSize            = 8
@@ -94,7 +97,7 @@ type Config struct {
 	AlphaThreshold *float64
 	// GlyphAlphaThreshold is the rendered glyph alpha cutoff for collision/stamping.
 	GlyphAlphaThreshold *float64
-	MaskType            string // "light", "dark", or "all"
+	MaskType            string // "light", "dark", "all", or "contrast"
 	// ForegroundThreshold is the luminance threshold for ForegroundMask. Nil uses
 	// the default; a pointer allows zero to be used intentionally.
 	ForegroundThreshold *float64
@@ -594,8 +597,8 @@ func normalizeConfig(conf Config) (settings, error) {
 	if cfg.maskType == "" {
 		cfg.maskType = MaskTypeLight
 	}
-	if cfg.maskType != MaskTypeLight && cfg.maskType != MaskTypeDark && cfg.maskType != MaskTypeAll {
-		return cfg, errors.New(`mask type must be "light", "dark", or "all"`)
+	if cfg.maskType != MaskTypeLight && cfg.maskType != MaskTypeDark && cfg.maskType != MaskTypeAll && cfg.maskType != MaskTypeContrast {
+		return cfg, errors.New(`mask type must be "light", "dark", "all", or "contrast"`)
 	}
 	if cfg.fillerWordCount <= 0 {
 		cfg.fillerWordCount = conf.DensityLevel
@@ -813,6 +816,7 @@ func applyPackingProfileDefaults(conf Config) (Config, error) {
 func buildMask(img image.Image, maskType string, threshold float64, alphaThreshold float64, inferBackground bool) (*shapeMask, error) {
 	bounds := img.Bounds()
 	w, h := bounds.Dx(), bounds.Dy()
+	bgR, bgG, bgB, bgA := estimatedBackgroundRGBA(img)
 	mask := &shapeMask{
 		width:     w,
 		height:    h,
@@ -823,11 +827,19 @@ func buildMask(img image.Image, maskType string, threshold float64, alphaThresho
 		minY:      h,
 		maxX:      -1,
 		maxY:      -1,
-		bgColor:   color.White,
+		bgColor: color.RGBA{
+			R: uint8(math.Round(bgR * 255)),
+			G: uint8(math.Round(bgG * 255)),
+			B: uint8(math.Round(bgB * 255)),
+			A: uint8(math.Round(bgA * 255)),
+		},
 	}
 
 	var sumX, sumY float64
-	var bgR, bgG, bgB, bgA, bgCount float64
+	var inferredBgR, inferredBgG, inferredBgB, inferredBgA, bgCount float64
+	if threshold == defaultMaskThreshold && maskType == MaskTypeContrast {
+		threshold = 0.18
+	}
 
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
@@ -845,6 +857,8 @@ func buildMask(img image.Image, maskType string, threshold float64, alphaThresho
 				playable = playable && lum >= threshold
 			case MaskTypeDark:
 				playable = playable && lum <= threshold
+			case MaskTypeContrast:
+				playable = playable && backgroundContrastScore(float64(r)/maxColorChannelValue, float64(g)/maxColorChannelValue, float64(b)/maxColorChannelValue, bgR, bgG, bgB) >= threshold
 			}
 
 			if playable {
@@ -861,10 +875,10 @@ func buildMask(img image.Image, maskType string, threshold float64, alphaThresho
 			}
 
 			if inferBackground {
-				bgR += float64(r) / 257.0
-				bgG += float64(g) / 257.0
-				bgB += float64(b) / 257.0
-				bgA += float64(a) / 257.0
+				inferredBgR += float64(r) / 257.0
+				inferredBgG += float64(g) / 257.0
+				inferredBgB += float64(b) / 257.0
+				inferredBgA += float64(a) / 257.0
 				bgCount++
 			}
 		}
@@ -879,14 +893,60 @@ func buildMask(img image.Image, maskType string, threshold float64, alphaThresho
 	mask.centerY = sumY / float64(mask.playablePx)
 	if inferBackground && bgCount > 0 {
 		mask.bgColor = color.RGBA{
-			R: uint8(math.Round(bgR / bgCount)),
-			G: uint8(math.Round(bgG / bgCount)),
-			B: uint8(math.Round(bgB / bgCount)),
-			A: uint8(math.Round(bgA / bgCount)),
+			R: uint8(math.Round(inferredBgR / bgCount)),
+			G: uint8(math.Round(inferredBgG / bgCount)),
+			B: uint8(math.Round(inferredBgB / bgCount)),
+			A: uint8(math.Round(inferredBgA / bgCount)),
 		}
 	}
 
 	return mask, nil
+}
+
+func estimatedBackgroundRGBA(img image.Image) (float64, float64, float64, float64) {
+	bounds := img.Bounds()
+	step := max(1, min(bounds.Dx(), bounds.Dy())/128)
+	var rSum, gSum, bSum, aSum float64
+	var samples float64
+	add := func(x, y int) {
+		r, g, b, a := img.At(x, y).RGBA()
+		rSum += float64(r) / maxColorChannelValue
+		gSum += float64(g) / maxColorChannelValue
+		bSum += float64(b) / maxColorChannelValue
+		aSum += float64(a) / maxColorChannelValue
+		samples++
+	}
+	for x := bounds.Min.X; x < bounds.Max.X; x += step {
+		add(x, bounds.Min.Y)
+		add(x, bounds.Max.Y-1)
+	}
+	for y := bounds.Min.Y; y < bounds.Max.Y; y += step {
+		add(bounds.Min.X, y)
+		add(bounds.Max.X-1, y)
+	}
+	if samples == 0 {
+		return 1, 1, 1, 1
+	}
+	return rSum / samples, gSum / samples, bSum / samples, aSum / samples
+}
+
+func backgroundContrastScore(r, g, b, bgR, bgG, bgB float64) float64 {
+	lum := relativeLuminance(r, g, b)
+	bgLum := relativeLuminance(bgR, bgG, bgB)
+	contrastRatio := (math.Max(lum, bgLum) + 0.05) / (math.Min(lum, bgLum) + 0.05)
+	luminanceScore := math.Min(1, (contrastRatio-1)/6)
+	colorDistance := math.Sqrt((r-bgR)*(r-bgR)+(g-bgG)*(g-bgG)+(b-bgB)*(b-bgB)) / math.Sqrt(3)
+	return math.Max(luminanceScore, colorDistance)
+}
+
+func relativeLuminance(r, g, b float64) float64 {
+	linear := func(v float64) float64 {
+		if v <= 0.03928 {
+			return v / 12.92
+		}
+		return math.Pow((v+0.055)/1.055, 2.4)
+	}
+	return 0.2126*linear(r) + 0.7152*linear(g) + 0.0722*linear(b)
 }
 
 func buildForegroundBits(maskImg image.Image, baseMask *shapeMask, threshold float64, alphaThreshold float64) ([]bool, error) {

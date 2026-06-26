@@ -132,6 +132,17 @@ func TestGenerate(t *testing.T) {
 			wantErrSubstr: "contrast percent must be between",
 		},
 		{
+			name: "errors when text weight is out of range",
+			config: Config{
+				Logger:       testLogger(),
+				Text:         "hello world",
+				InputImage:   solidImage(120, 80, color.RGBA{A: 255}),
+				MonoFontPath: fontPath,
+				TextWeight:   5,
+			},
+			wantErrSubstr: "text weight cannot be greater than",
+		},
+		{
 			name: "errors when font is too large",
 			config: Config{
 				Logger:       testLogger(),

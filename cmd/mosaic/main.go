@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"image"
 	"log/slog"
@@ -11,7 +10,6 @@ import (
 	"strings"
 
 	"github.com/disintegration/imaging"
-	"github.com/santiagoa58/image-play/internal/effects/textmosaic"
 	"github.com/santiagoa58/image-play/internal/effects/wordcloud"
 	"github.com/santiagoa58/image-play/internal/util"
 )
@@ -39,104 +37,49 @@ func main() {
 }
 
 func run() error {
-	var (
-		inputPath    = flag.String("in", "", "Path to input image (PNG, JPEG, WebP, etc.) [required]")
-		outputPath   = flag.String("out", "", "Output path. Can be file or directory. Empty = input_<effect>.png")
-		effect       = flag.String("effect", effectTextMosaic, `Effect to generate: "textmosaic" or "wordcloud"`)
-		width        = flag.Int("width", 0, "Target width in pixels. Common: 1080, 1920, 3840. 0 = original size")
-		fontPath     = flag.String("font", "", "Path to monospace TTF/OTF font. Empty = bundled font when available")
-		text         = flag.String("text", "", "Text to use for the selected effect")
-		textFile     = flag.String("text-file", "", "Path to UTF-8 text file to use as effect text")
-		overwrite    = flag.Bool("overwrite", true, "Allow overwriting an existing output file")
-		createDirs   = flag.Bool("create-dirs", true, "Create missing output directories")
-		verbose      = flag.Bool("v", false, "Enable verbose/debug logging")
-		baseFontSize = flag.Float64("font-size", 0, "Text mosaic base font size before scaling. 0 = default")
-		bw           = flag.Bool("bw", false, "Text mosaic: convert source image to black and white before sampling")
-		contrast     = flag.Float64("contrast", 0, "Text mosaic: contrast adjustment percent. 0 = no change, 20 = increase by 20%")
-
-		packingProfile             = flag.String("packing-profile", "", `Word cloud: packing profile: "", "binary-silhouette", "tonal-detail", or "foreground-background"`)
-		qualityPreset              = flag.String("quality", "", `Word cloud: quality preset: "", "fast", "balanced", "dense", or "poster". Empty = auto`)
-		maskType                   = flag.String("mask-type", "", `Word cloud: mask type: "", "dark", "light", or "all". Empty = profile/default`)
-		maskThreshold              = flag.Float64("mask-threshold", defaultOptionalFloatFlag, "Word cloud: mask luminance threshold from 0..1. Negative = default")
-		foregroundThreshold        = flag.Float64("foreground-threshold", defaultOptionalFloatFlag, "Word cloud: foreground mask threshold from 0..1. Negative = default")
-		foregroundMaskPath         = flag.String("foreground-mask", "", "Word cloud: optional foreground mask path. White = foreground, black = background")
-		saveForegroundMaskPath     = flag.String("save-foreground-mask", "", "Word cloud: optional path to save the OpenCV foreground mask")
-		foregroundRect             = flag.String("foreground-rect", "", "Word cloud: OpenCV GrabCut rectangle as x,y,width,height. Empty = default central foreground")
-		grabCutIterations          = flag.Int("grabcut-iterations", 5, "Word cloud: OpenCV GrabCut iterations for automatic foreground masks")
-		includeProbableForeground  = flag.Bool("include-probable-foreground", true, "Word cloud: include OpenCV probable-foreground pixels in the mask")
-		alphaThreshold             = flag.Float64("alpha-threshold", defaultOptionalFloatFlag, "Word cloud: source alpha threshold from 0..1. Negative = default")
-		glyphAlphaThreshold        = flag.Float64("glyph-alpha-threshold", defaultOptionalFloatFlag, "Word cloud: rendered glyph alpha threshold from 0..1. Negative = default")
-		minFontSize                = flag.Int("min-font-size", 0, "Word cloud: minimum font size. 0 = default")
-		maxFontSize                = flag.Int("max-font-size", 0, "Word cloud: maximum font size. 0 = default")
-		sizeExponent               = flag.Float64("size-exponent", 0, "Word cloud: frequency-to-font-size exponent. 0 = default")
-		fillerWordCount            = flag.Int("filler-word-count", 0, "Word cloud: number of extra filler word candidates. 0 = quality preset/default")
-		densityAlias               = flag.Int("density", 0, "Word cloud: alias for -filler-word-count")
-		wordPadding                = flag.Int("word-padding", defaultOptionalIntegerFlag, "Word cloud: padding in pixels around glyphs. Negative = profile/default")
-		maxPlacementAttempts       = flag.Int("max-placement-attempts", 0, "Word cloud: max placement checks per word. 0 = quality preset/default")
-		maxHeroPlacementAttempts   = flag.Int("max-hero-placement-attempts", 0, "Word cloud: max placement checks for hero words. 0 = default")
-		maxFillerPlacementAttempts = flag.Int("max-filler-placement-attempts", 0, "Word cloud: max placement checks for filler words. 0 = default")
-		heroWordCount              = flag.Int("hero-word-count", 0, "Word cloud: number of largest words to treat as hero words. 0 = default")
-		finalFillPasses            = flag.Int("final-fill-passes", defaultOptionalIntegerFlag, "Word cloud: final tiny-word fill passes. Negative = preset/default")
-		finalFillFontSize          = flag.Int("final-fill-font-size", 0, "Word cloud: final fill font size. 0 = min font size")
-		fillerMaxScale             = flag.Float64("filler-max-scale", 0, "Word cloud: max filler size as fraction of max font size. 0 = default")
-		detailPlacementBias        = flag.Float64("detail-placement-bias", 0, "Word cloud: prefer source-detail regions during tonal final fill. 0 = profile/default")
-		colorMode                  = flag.String("color-mode", "", `Word cloud: color mode: "", "source", "palette", "luminance-palette", "random-palette", or "sequential-palette". Empty = auto`)
-		palette                    = flag.String("palette", "", "Word cloud: comma-separated hex colors, e.g. '#111111,#777777,#eeeeee'")
-		background                 = flag.String("background", "#ffffff", "Word cloud: canvas background hex color. Empty = effect default")
-		inferBackground            = flag.Bool("infer-background", false, "Word cloud: infer background from non-playable pixels")
-		seed                       = flag.Int64("seed", 1, "Word cloud: deterministic random seed")
-		minWordLength              = flag.Int("min-word-length", 0, "Word cloud: minimum parsed word length. 0 = default")
-		maxWordLength              = flag.Int("max-word-length", 0, "Word cloud: maximum parsed word length. 0 = no limit")
-		stopWords                  = flag.String("stop-words", "", "Word cloud: comma-separated words to exclude")
-	)
-
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "%s — image effects toolkit\n\n", appName)
-		fmt.Fprint(os.Stderr, "Usage:\n")
-		fmt.Fprintf(os.Stderr, "  %s -effect textmosaic -in photo.jpg -font /path/to/monofont.ttf -text-file message.txt\n", appName)
-		fmt.Fprintf(os.Stderr, "  %s -effect wordcloud -in silhouette.png -font /path/to/monofont.ttf -text-file words.txt -quality dense\n\n", appName)
-		fmt.Fprint(os.Stderr, "Flags:\n")
-		flag.PrintDefaults()
-		fmt.Fprint(os.Stderr, "\nCommon widths: 1080 (HD), 1920 (Full HD), 3840 (4K)\n")
+	opts := registerCLIFlags(flagCommandLine())
+	configureUsage(flagCommandLine())
+	flagCommandLine().Parse(os.Args[1:])
+	if opts.common.advanced {
+		printAdvancedUsage(flagCommandLine())
+		return nil
 	}
 
-	flag.Parse()
-
-	selectedEffect, err := normalizeEffectName(*effect)
+	selectedEffect, err := normalizeEffectName(opts.common.effect)
 	if err != nil {
-		flag.Usage()
+		flagCommandLine().Usage()
 		return err
 	}
 
-	logger := newLogger(*verbose)
+	logger := newLogger(opts.common.verbose)
 	logger.Info("mosaic starting", "version", appVersion, "effect", selectedEffect)
 
-	if err := validateRequiredFlags(*inputPath); err != nil {
-		flag.Usage()
+	if err := validateRequiredFlags(opts.common.inputPath); err != nil {
+		flagCommandLine().Usage()
 		return err
 	}
 
-	logger.Debug("loading image", "path", *inputPath)
+	logger.Debug("loading image", "path", opts.common.inputPath)
 
-	img, err := imaging.Open(*inputPath)
+	img, err := imaging.Open(opts.common.inputPath)
 	if err != nil {
-		return fmt.Errorf("open input image %q: %w", *inputPath, err)
+		return fmt.Errorf("open input image %q: %w", opts.common.inputPath, err)
 	}
-	resolvedFontPath, err := resolveFontPath(*fontPath)
+	resolvedFontPath, err := resolveFontPath(opts.common.fontPath)
 	if err != nil {
 		return err
 	}
-	effectText, err := resolveText(*text, *textFile, defaultTextForEffect(selectedEffect))
+	effectText, err := resolveText(opts.common.text, opts.common.textFile, defaultTextForEffect(selectedEffect))
 	if err != nil {
 		return err
 	}
-	resolvedWidth := resolveTargetWidth(*width, selectedEffect)
+	resolvedWidth := resolveTargetWidth(opts.common.width, selectedEffect)
 
-	finalOutputPath, err := util.ResolveOutputPath(*inputPath, *outputPath, util.OutputPathOptions{
+	finalOutputPath, err := util.ResolveOutputPath(opts.common.inputPath, opts.common.outputPath, util.OutputPathOptions{
 		DefaultExt:        defaultOutputExt,
 		DefaultSuffix:     defaultOutputSuffix(selectedEffect),
-		AllowCreateParent: *createDirs,
-		AllowOverwrite:    *overwrite,
+		AllowCreateParent: opts.common.createDirs,
+		AllowOverwrite:    opts.common.overwrite,
 	})
 	if err != nil {
 		return fmt.Errorf("resolve output path: %w", err)
@@ -144,7 +87,7 @@ func run() error {
 
 	logger.Debug("resolved output path", "path", finalOutputPath)
 
-	if *createDirs {
+	if opts.common.createDirs {
 		if err := os.MkdirAll(filepath.Dir(finalOutputPath), 0755); err != nil {
 			return fmt.Errorf("create output directory: %w", err)
 		}
@@ -157,56 +100,12 @@ func run() error {
 
 	switch selectedEffect {
 	case effectTextMosaic:
-		outputImage, err = textmosaic.Generate(textmosaic.Config{
-			Logger:          logger,
-			Text:            effectText,
-			InputImage:      img,
-			MonoFontPath:    resolvedFontPath,
-			TargetWidth:     resolvedWidth,
-			BaseFontSize:    *baseFontSize,
-			IsBlackAndWhite: *bw,
-			ContrastPercent: *contrast,
-		})
+		outputImage, err = generateTextMosaic(logger, img, effectText, resolvedFontPath, resolvedWidth, opts.text)
 		if err != nil {
 			return fmt.Errorf("generate text mosaic: %w", err)
 		}
 	case effectWordCloud:
-		result, err := generateWordCloud(logger, img, effectText, resolvedFontPath, resolvedWidth, wordCloudOptions{
-			packingProfile:             *packingProfile,
-			qualityPreset:              *qualityPreset,
-			maskType:                   *maskType,
-			maskThreshold:              *maskThreshold,
-			foregroundThreshold:        *foregroundThreshold,
-			foregroundMaskPath:         *foregroundMaskPath,
-			saveForegroundMaskPath:     *saveForegroundMaskPath,
-			foregroundRect:             *foregroundRect,
-			grabCutIterations:          *grabCutIterations,
-			includeProbableForeground:  *includeProbableForeground,
-			alphaThreshold:             *alphaThreshold,
-			glyphAlphaThreshold:        *glyphAlphaThreshold,
-			minFontSize:                *minFontSize,
-			maxFontSize:                *maxFontSize,
-			sizeExponent:               *sizeExponent,
-			fillerWordCount:            *fillerWordCount,
-			densityAlias:               *densityAlias,
-			wordPadding:                *wordPadding,
-			maxPlacementAttempts:       *maxPlacementAttempts,
-			maxHeroPlacementAttempts:   *maxHeroPlacementAttempts,
-			maxFillerPlacementAttempts: *maxFillerPlacementAttempts,
-			heroWordCount:              *heroWordCount,
-			finalFillPasses:            *finalFillPasses,
-			finalFillFontSize:          *finalFillFontSize,
-			fillerMaxScale:             *fillerMaxScale,
-			detailPlacementBias:        *detailPlacementBias,
-			colorMode:                  *colorMode,
-			palette:                    *palette,
-			background:                 *background,
-			inferBackground:            *inferBackground,
-			seed:                       *seed,
-			minWordLength:              *minWordLength,
-			maxWordLength:              *maxWordLength,
-			stopWords:                  *stopWords,
-		})
+		result, err := generateWordCloud(logger, img, effectText, resolvedFontPath, resolvedWidth, opts.wordCloud)
 		if err != nil {
 			return fmt.Errorf("generate word cloud: %w", err)
 		}

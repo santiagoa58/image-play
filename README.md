@@ -114,6 +114,12 @@ Show help:
 ./bin/mosaic -h
 ```
 
+Show every tuning flag:
+
+```bash
+./bin/mosaic -help-advanced
+```
+
 ## CLI Usage
 
 The simplest commands only need an effect, input, and output. If `-text` and `-text-file` are omitted, the CLI uses built-in sample text.
