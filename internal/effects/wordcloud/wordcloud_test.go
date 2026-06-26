@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"math/rand"
 	"testing"
+
+	"github.com/disintegration/imaging"
 )
 
 const testFontPath = "../../../fonts/NotoSansMono-VariableFont_wdth,wght.ttf"
@@ -45,7 +47,7 @@ func TestBuildHierarchyOrdersLargeWordsBeforeDenseFillers(t *testing.T) {
 		{Word: "BETA", Count: 4},
 	}
 
-	candidates := buildHierarchy(stats, 10, 50, 4, 0.5, rand.New(rand.NewSource(1)))
+	candidates := buildHierarchy(stats, 10, 50, 4, 0.5, defaultFillerMaxScale, rand.New(rand.NewSource(1)))
 	if len(candidates) != 6 {
 		t.Fatalf("expected 6 candidates, got %d", len(candidates))
 	}
@@ -190,6 +192,78 @@ func TestGenerateRendersWordCloudInsideMask(t *testing.T) {
 	}
 }
 
+func TestGenerateResultWithRepositoryImage(t *testing.T) {
+	img, err := imaging.Open("../../../testdata/images/couple_tour.jpg")
+	if err != nil {
+		t.Fatalf("open repository test image: %v", err)
+	}
+	threshold := 0.55
+	result, err := GenerateResult(Config{
+		Text:                 "travel couple tour memory photo road beach mountain city journey",
+		InputImage:           img,
+		TargetWidth:          160,
+		FontPath:             testFontPath,
+		MinFontSize:          5,
+		MaxFontSize:          18,
+		MaskType:             "dark",
+		MaskThreshold:        &threshold,
+		FillerWordCount:      30,
+		MaxPlacementAttempts: 400,
+		ColorMode:            ColorModeLuminancePalette,
+		Seed:                 11,
+	})
+	if err != nil {
+		t.Fatalf("GenerateResult returned error: %v", err)
+	}
+	if result.Image.Bounds().Dx() != 160 {
+		t.Fatalf("expected resized output width 160, got %d", result.Image.Bounds().Dx())
+	}
+	if result.Stats.PlacedWords == 0 || result.Stats.PlacementChecks == 0 {
+		t.Fatalf("expected real-image placement stats, got %#v", result.Stats)
+	}
+}
+
+func TestGenerateResultWithForegroundOnWhiteImageHasDenseCoverage(t *testing.T) {
+	img, err := imaging.Open("../../../testdata/images/gen-img-couple.png")
+	if err != nil {
+		t.Fatalf("open repository foreground image: %v", err)
+	}
+	threshold := 0.965
+	result, err := GenerateResult(Config{
+		Text: "love wedding couple bride groom forever vows embrace kiss family joy heart celebration " +
+			"portrait devotion romance ceremony memory elegant together promise beloved",
+		InputImage:                 img,
+		TargetWidth:                256,
+		FontPath:                   testFontPath,
+		PackingProfile:             PackingProfileTonalDetail,
+		QualityPreset:              QualityPresetDense,
+		MinFontSize:                3,
+		MaxFontSize:                24,
+		MaskType:                   "dark",
+		MaskThreshold:              &threshold,
+		FillerWordCount:            1400,
+		MaxPlacementAttempts:       3500,
+		MaxFillerPlacementAttempts: 650,
+		WordPadding:                0,
+		FinalFillPasses:            6,
+		FinalFillFontSize:          3,
+		FinalFillAnchorSamples:     64,
+		FillerMaxScale:             0.12,
+		ColorMode:                  ColorModeSource,
+		Seed:                       42,
+		Background:                 color.White,
+	})
+	if err != nil {
+		t.Fatalf("GenerateResult returned error: %v", err)
+	}
+	if result.Stats.MaskCoverage < 0.45 {
+		t.Fatalf("expected foreground mask to cover the subject, got stats %#v", result.Stats)
+	}
+	if result.Stats.OccupiedCoverage < 0.45 {
+		t.Fatalf("expected dense word occupancy, got stats %#v", result.Stats)
+	}
+}
+
 func TestNormalizeConfigAllowsExplicitZeroThreshold(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
 	threshold := 0.0
@@ -204,6 +278,49 @@ func TestNormalizeConfigAllowsExplicitZeroThreshold(t *testing.T) {
 	}
 	if cfg.maskThreshold != 0 {
 		t.Fatalf("expected explicit zero threshold to be preserved, got %.2f", cfg.maskThreshold)
+	}
+}
+
+func TestPackingProfilesApplyTechnicalDefaults(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
+
+	binary, err := normalizeConfig(Config{
+		Text:           "alpha beta",
+		InputImage:     img,
+		FontPath:       testFontPath,
+		PackingProfile: PackingProfileBinarySilhouette,
+	})
+	if err != nil {
+		t.Fatalf("binary silhouette profile returned error: %v", err)
+	}
+	if binary.colorMode != ColorModePalette || binary.finalFillPasses != 1 || binary.fillerMaxScale != 0.22 {
+		t.Fatalf("unexpected binary silhouette defaults: %#v", binary)
+	}
+
+	tonal, err := normalizeConfig(Config{
+		Text:           "alpha beta",
+		InputImage:     img,
+		FontPath:       testFontPath,
+		PackingProfile: PackingProfileTonalDetail,
+	})
+	if err != nil {
+		t.Fatalf("tonal detail profile returned error: %v", err)
+	}
+	if tonal.colorMode != ColorModeLuminancePalette || tonal.finalFillPasses != 3 || tonal.wordPadding != 1 || tonal.fillerMaxScale != 0.16 {
+		t.Fatalf("unexpected tonal detail defaults: %#v", tonal)
+	}
+}
+
+func TestPackingProfilesRejectUnknownName(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	_, err := normalizeConfig(Config{
+		Text:           "alpha beta",
+		InputImage:     img,
+		FontPath:       testFontPath,
+		PackingProfile: "example-specific",
+	})
+	if err == nil {
+		t.Fatal("expected unknown packing profile to return an error")
 	}
 }
 
@@ -268,11 +385,73 @@ func TestPaletteColorModesAreSeededAndDeterministic(t *testing.T) {
 
 	p1 := newPacker(mask, image.NewRGBA(image.Rect(0, 0, 10, 10)), testFontPath, cfg)
 	p2 := newPacker(mask, image.NewRGBA(image.Rect(0, 0, 10, 10)), testFontPath, cfg)
+	glyph := singlePixelGlyph(1, 1)
 
 	for i := range 6 {
-		if p1.chooseColor(5, 5, i, 10) != p2.chooseColor(5, 5, i, 10) {
+		if p1.chooseColor(glyph, 5, 5, i, 10) != p2.chooseColor(glyph, 5, 5, i, 10) {
 			t.Fatal("expected seeded random palette mode to be deterministic")
 		}
+	}
+}
+
+func TestPaddingBroadPhaseRejectsNearNonOverlappingBoxes(t *testing.T) {
+	mask := fullMask(30, 20)
+	cfg := testSettings()
+	cfg.wordPadding = 3
+	p := newPacker(mask, image.NewRGBA(image.Rect(0, 0, 30, 20)), testFontPath, cfg)
+
+	first := placedWord{
+		glyph: singlePixelGlyph(1, 1),
+		x:     10,
+		y:     10,
+		box:   rect{left: 10, top: 10, right: 11, bottom: 11},
+	}
+	p.stamp(first)
+	p.hash.add(first.box.expand(p.wordPadding))
+
+	nearby := singlePixelGlyph(1, 1)
+	if p.canPlace(nearby, 13, 10) {
+		t.Fatal("expected padding-expanded broad phase to trigger occupancy rejection")
+	}
+}
+
+func TestNormalizeConfigNormalizesStopWords(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 10, 10))
+	cfg, err := normalizeConfig(Config{
+		Text:       "The alpha",
+		InputImage: img,
+		FontPath:   testFontPath,
+		StopWords:  map[string]struct{}{"the": {}},
+	})
+	if err != nil {
+		t.Fatalf("normalizeConfig returned error: %v", err)
+	}
+	stats, err := parseWordStats("the alpha", cfg)
+	if err != nil {
+		t.Fatalf("parseWordStats returned error: %v", err)
+	}
+	if len(stats) != 1 || stats[0].Word != "ALPHA" {
+		t.Fatalf("expected lowercase stop word to be normalized, got %#v", stats)
+	}
+}
+
+func TestLuminancePaletteCanInvertMapping(t *testing.T) {
+	mask := fullMask(5, 5)
+	for i := range mask.luminance {
+		mask.luminance[i] = 0.9
+	}
+	palette := []color.Color{
+		color.RGBA{1, 0, 0, 255},
+		color.RGBA{2, 0, 0, 255},
+	}
+	cfg := testSettings()
+	cfg.colorMode = ColorModeLuminancePalette
+	cfg.palette = palette
+	cfg.invertLuminancePalette = true
+	p := newPacker(mask, image.NewRGBA(image.Rect(0, 0, 5, 5)), testFontPath, cfg)
+
+	if p.chooseColor(singlePixelGlyph(1, 1), 2, 2, 0, 4) != palette[0] {
+		t.Fatal("expected inverted luminance palette to map bright source to first palette entry")
 	}
 }
 
@@ -295,7 +474,7 @@ func TestMaxPlacementAttemptsReportsRejectedWords(t *testing.T) {
 		FillerWordCount:      1,
 		MaxPlacementAttempts: 1,
 	})
-	if result.Stats.MaxAttemptRejects == 0 && result.Stats.RejectedWords == 0 {
+	if result.Stats.WordsRejectedAfterAttempts == 0 && result.Stats.RejectedWords == 0 {
 		t.Fatalf("expected bounded placement attempts to be reflected in stats, err=%v stats=%#v", err, result.Stats)
 	}
 }
@@ -348,6 +527,19 @@ func fullMask(width, height int) *shapeMask {
 		mask.bits[i] = true
 	}
 	return mask
+}
+
+func singlePixelGlyph(width, height int) *glyphBitmap {
+	x := width / 2
+	y := height / 2
+	return &glyphBitmap{
+		width:  width,
+		height: height,
+		pixels: []glyphPixel{
+			{x: x, y: y, alpha: 255},
+		},
+		spans: []glyphSpan{{y: y, x1: x, x2: x}},
+	}
 }
 
 func testSettings() settings {
