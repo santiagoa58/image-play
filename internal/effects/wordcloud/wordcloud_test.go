@@ -264,6 +264,51 @@ func TestGenerateResultWithForegroundOnWhiteImageHasDenseCoverage(t *testing.T) 
 	}
 }
 
+func TestForegroundBackgroundProfilePacksForegroundMoreDensely(t *testing.T) {
+	img := image.NewRGBA(image.Rect(0, 0, 180, 140))
+	mask := image.NewGray(image.Rect(0, 0, 180, 140))
+	for y := range 140 {
+		for x := range 180 {
+			img.Set(x, y, color.RGBA{190, 210, 225, 255})
+		}
+	}
+	for y := 35; y < 130; y++ {
+		for x := 55; x < 130; x++ {
+			img.Set(x, y, color.RGBA{45, 55, 65, 255})
+			mask.SetGray(x, y, color.Gray{Y: 255})
+		}
+	}
+
+	result, err := GenerateResult(Config{
+		Text: "portrait couple travel memory together foreground background depth focus clarity " +
+			"building sky jacket shirt people photo word cloud detail",
+		InputImage:                 img,
+		ForegroundMask:             mask,
+		FontPath:                   testFontPath,
+		PackingProfile:             PackingProfileForegroundBackground,
+		QualityPreset:              QualityPresetBalanced,
+		MinFontSize:                3,
+		MaxFontSize:                22,
+		FillerWordCount:            700,
+		MaxPlacementAttempts:       2500,
+		MaxFillerPlacementAttempts: 450,
+		FinalFillPasses:            3,
+		FinalFillFontSize:          3,
+		ColorMode:                  ColorModeSource,
+		Seed:                       21,
+		Background:                 color.White,
+	})
+	if err != nil {
+		t.Fatalf("GenerateResult returned error: %v", err)
+	}
+	if result.Stats.ForegroundMaskCoverage <= 0 {
+		t.Fatalf("expected foreground mask coverage, got %#v", result.Stats)
+	}
+	if result.Stats.ForegroundOccupiedCoverage <= result.Stats.BackgroundOccupiedCoverage {
+		t.Fatalf("expected foreground to be packed more densely than background, got %#v", result.Stats)
+	}
+}
+
 func TestNormalizeConfigAllowsExplicitZeroThreshold(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 4, 4))
 	threshold := 0.0

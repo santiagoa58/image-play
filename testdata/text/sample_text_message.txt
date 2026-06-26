@@ -1,8 +1,5 @@
-¡Hola mis pedristas! He hecho unos cambios en el WiFi y necesito que todos se cambien al WiFi Alberaldo. *No al Cepeda-5G WiFi*, ese funciona por ahora pero no es una buena opción. Así que cuando puedan, *cambien al WiFi Alberaldo.*
+Every image effect in this project starts with a source picture and turns it into a new visual texture.
 
-Además, cualquier cosa conectada al EXT WiFi *no va a funcionar para nada.*
+This sample text is intentionally simple. It gives the text mosaic enough repeated words to demonstrate color sampling, spacing, contrast, and shape without depending on a personal message.
 
-Ahora solo tenemos Alberaldo. Como buenos comunistas, todos unidos bajo Alberaldo.
-
-*#cepedanoperdio #pedristasalpoder #cepeda4ever #illegal-sin-la-i-es-LEGAL*
-@all
+Small letters build the details. Repeated phrases create rhythm. From a distance, the original image comes back into view through typography, color, and density.
