@@ -17,21 +17,32 @@ import (
 )
 
 const (
-	ColorModeSource           = "source"
-	ColorModePalette          = "palette"
-	ColorModeLuminancePalette = "luminance-palette"
-	ColorModeRandomPalette    = "random-palette"
+	PackingProfileBinarySilhouette = "binary-silhouette"
+	PackingProfileTonalDetail      = "tonal-detail"
 
-	defaultMaxFontSize          = 96
-	defaultMinFontSize          = 8
-	defaultMaskThreshold        = 0.50
-	defaultAlphaThreshold       = 0.10
-	defaultGlyphAlphaThreshold  = 0.05
-	defaultFillerWordCount      = 1200
-	defaultMaxPlacementAttempts = 5000
-	defaultMaxPixels            = 8_000_000
-	defaultSizeExponent         = 0.50
-	defaultHeroWordCount        = 6
+	QualityPresetFast     = "fast"
+	QualityPresetBalanced = "balanced"
+	QualityPresetDense    = "dense"
+	QualityPresetPoster   = "poster"
+
+	ColorModeSource            = "source"
+	ColorModePalette           = "palette"
+	ColorModeLuminancePalette  = "luminance-palette"
+	ColorModeRandomPalette     = "random-palette"
+	ColorModeSequentialPalette = "sequential-palette"
+
+	defaultMaxFontSize            = 96
+	defaultMinFontSize            = 8
+	defaultMaskThreshold          = 0.50
+	defaultAlphaThreshold         = 0.10
+	defaultGlyphAlphaThreshold    = 0.05
+	defaultFillerWordCount        = 1200
+	defaultMaxPlacementAttempts   = 3000
+	defaultFillerMaxScale         = 0.25
+	defaultFinalFillAnchorSamples = 32
+	defaultMaxPixels              = 8_000_000
+	defaultSizeExponent           = 0.50
+	defaultHeroWordCount          = 6
 
 	maxColorChannelValue = 65535.0
 )
@@ -50,6 +61,12 @@ type Config struct {
 	InputImage  image.Image
 	TargetWidth int
 	FontPath    string
+	// PackingProfile selects a technical preset over the same glyph-packing engine.
+	// Supported values are "binary-silhouette" and "tonal-detail".
+	PackingProfile string
+	// QualityPreset selects a performance/density preset. Supported values are
+	// "fast", "balanced", "dense", and "poster".
+	QualityPreset string
 
 	MinFontSize int
 	MaxFontSize int
@@ -73,19 +90,27 @@ type Config struct {
 	DensityLevel int
 
 	MaxPlacementAttempts int
-	WordPadding          int
-	MaxPixels            int
+	// MaxHeroPlacementAttempts and MaxFillerPlacementAttempts override MaxPlacementAttempts
+	// for primary hero words and filler/final-fill words.
+	MaxHeroPlacementAttempts   int
+	MaxFillerPlacementAttempts int
+	WordPadding                int
+	MaxPixels                  int
 
 	ColorMode string
 	Palette   []color.Color
 	Seed      int64
+	// InvertLuminancePalette maps bright source regions to earlier palette entries.
+	InvertLuminancePalette bool
 
 	Background      color.Color
 	InferBackground bool
 
-	HeroWordCount     int
-	FinalFillPasses   int
-	FinalFillFontSize int
+	HeroWordCount          int
+	FinalFillPasses        int
+	FinalFillFontSize      int
+	FinalFillAnchorSamples int
+	FillerMaxScale         float64
 
 	MinWordLength int
 	MaxWordLength int
@@ -98,41 +123,47 @@ type Result struct {
 }
 
 type Stats struct {
-	AttemptedWords    int
-	PlacedWords       int
-	RejectedWords     int
-	RenderFailures    int
-	TooLargeRejects   int
-	MaskRejects       int
-	CollisionRejects  int
-	MaxAttemptRejects int
-	MaskCoverage      float64
-	OccupiedCoverage  float64
+	AttemptedWords             int
+	PlacedWords                int
+	RejectedWords              int
+	PlacementChecks            int
+	MaskCheckFailures          int
+	CollisionCheckFailures     int
+	WordsRejectedAfterAttempts int
+	WordsRejectedTooLarge      int
+	WordsRejectedRenderFailure int
+	MaskCoverage               float64
+	OccupiedCoverage           float64
 }
 
 type settings struct {
-	logger               *slog.Logger
-	minFontSize          int
-	maxFontSize          int
-	sizeExponent         float64
-	maskThreshold        float64
-	alphaThreshold       float64
-	glyphAlphaThreshold  float64
-	maskType             string
-	fillerWordCount      int
-	maxPlacementAttempts int
-	wordPadding          int
-	maxPixels            int
-	colorMode            string
-	palette              []color.Color
-	seed                 int64
-	inferBackground      bool
-	heroWordCount        int
-	finalFillPasses      int
-	finalFillFontSize    int
-	minWordLength        int
-	maxWordLength        int
-	stopWords            map[string]struct{}
+	logger                 *slog.Logger
+	minFontSize            int
+	maxFontSize            int
+	sizeExponent           float64
+	maskThreshold          float64
+	alphaThreshold         float64
+	glyphAlphaThreshold    float64
+	maskType               string
+	fillerWordCount        int
+	maxPlacementAttempts   int
+	maxHeroAttempts        int
+	maxFillerAttempts      int
+	wordPadding            int
+	maxPixels              int
+	colorMode              string
+	palette                []color.Color
+	seed                   int64
+	invertLuminancePalette bool
+	inferBackground        bool
+	heroWordCount          int
+	finalFillPasses        int
+	finalFillFontSize      int
+	finalFillAnchorSamples int
+	fillerMaxScale         float64
+	minWordLength          int
+	maxWordLength          int
+	stopWords              map[string]struct{}
 }
 
 type wordStat struct {
@@ -183,18 +214,19 @@ type placedWord struct {
 }
 
 type shapeMask struct {
-	width      int
-	height     int
-	bits       []bool
-	luminance  []float64
-	playablePx int
-	minX       int
-	minY       int
-	maxX       int
-	maxY       int
-	centerX    float64
-	centerY    float64
-	bgColor    color.Color
+	width           int
+	height          int
+	bits            []bool
+	luminance       []float64
+	playableIndexes []int
+	playablePx      int
+	minX            int
+	minY            int
+	maxX            int
+	maxY            int
+	centerX         float64
+	centerY         float64
+	bgColor         color.Color
 }
 
 type pointF struct {
@@ -221,24 +253,28 @@ type cell struct {
 }
 
 type packer struct {
-	mask                *shapeMask
-	source              image.Image
-	fontPath            string
-	minFontSize         int
-	wordPadding         int
-	glyphAlphaThreshold float64
-	maxAttempts         int
-	heroWordCount       int
-	finalFillPasses     int
-	finalFillFontSize   int
-	colorMode           string
-	palette             []color.Color
-	rng                 *rand.Rand
-	occupancy           []bool
-	hash                *spatialHash
-	glyphs              map[glyphKey]*glyphBitmap
-	anchors             []pointF
-	stats               Stats
+	mask                   *shapeMask
+	source                 image.Image
+	fontPath               string
+	minFontSize            int
+	wordPadding            int
+	glyphAlphaThreshold    float64
+	maxAttempts            int
+	maxHeroAttempts        int
+	maxFillerAttempts      int
+	heroWordCount          int
+	finalFillPasses        int
+	finalFillFontSize      int
+	finalFillAnchorSamples int
+	colorMode              string
+	palette                []color.Color
+	invertLuminancePalette bool
+	rng                    *rand.Rand
+	occupancy              []bool
+	hash                   *spatialHash
+	glyphs                 map[glyphKey]*glyphBitmap
+	anchors                []pointF
+	stats                  Stats
 }
 
 // Generate creates a shape-constrained word cloud and returns only the image.
@@ -286,7 +322,7 @@ func GenerateResult(conf Config) (Result, error) {
 		"size", fmt.Sprintf("%dx%d", mask.width, mask.height),
 	)
 
-	candidates := buildHierarchy(stats, cfg.minFontSize, cfg.maxFontSize, cfg.fillerWordCount, cfg.sizeExponent, rand.New(rand.NewSource(cfg.seed)))
+	candidates := buildHierarchy(stats, cfg.minFontSize, cfg.maxFontSize, cfg.fillerWordCount, cfg.sizeExponent, cfg.fillerMaxScale, rand.New(rand.NewSource(cfg.seed)))
 	p := newPacker(mask, img, conf.FontPath, cfg)
 	placed := p.pack(candidates)
 	if cfg.finalFillPasses > 0 {
@@ -304,29 +340,44 @@ func GenerateResult(conf Config) (Result, error) {
 }
 
 func normalizeConfig(conf Config) (settings, error) {
+	var err error
+	conf, err = applyPackingProfileDefaults(conf)
+	if err != nil {
+		return settings{}, err
+	}
+	conf, err = applyQualityPresetDefaults(conf)
+	if err != nil {
+		return settings{}, err
+	}
+
 	cfg := settings{
-		logger:               conf.Logger,
-		minFontSize:          conf.MinFontSize,
-		maxFontSize:          conf.MaxFontSize,
-		sizeExponent:         conf.SizeExponent,
-		maskThreshold:        defaultMaskThreshold,
-		alphaThreshold:       defaultAlphaThreshold,
-		glyphAlphaThreshold:  defaultGlyphAlphaThreshold,
-		maskType:             conf.MaskType,
-		fillerWordCount:      conf.FillerWordCount,
-		maxPlacementAttempts: conf.MaxPlacementAttempts,
-		wordPadding:          conf.WordPadding,
-		maxPixels:            conf.MaxPixels,
-		colorMode:            conf.ColorMode,
-		palette:              append([]color.Color(nil), conf.Palette...),
-		seed:                 conf.Seed,
-		inferBackground:      conf.InferBackground,
-		heroWordCount:        conf.HeroWordCount,
-		finalFillPasses:      conf.FinalFillPasses,
-		finalFillFontSize:    conf.FinalFillFontSize,
-		minWordLength:        conf.MinWordLength,
-		maxWordLength:        conf.MaxWordLength,
-		stopWords:            conf.StopWords,
+		logger:                 conf.Logger,
+		minFontSize:            conf.MinFontSize,
+		maxFontSize:            conf.MaxFontSize,
+		sizeExponent:           conf.SizeExponent,
+		maskThreshold:          defaultMaskThreshold,
+		alphaThreshold:         defaultAlphaThreshold,
+		glyphAlphaThreshold:    defaultGlyphAlphaThreshold,
+		maskType:               conf.MaskType,
+		fillerWordCount:        conf.FillerWordCount,
+		maxPlacementAttempts:   conf.MaxPlacementAttempts,
+		maxHeroAttempts:        conf.MaxHeroPlacementAttempts,
+		maxFillerAttempts:      conf.MaxFillerPlacementAttempts,
+		wordPadding:            conf.WordPadding,
+		maxPixels:              conf.MaxPixels,
+		colorMode:              conf.ColorMode,
+		palette:                append([]color.Color(nil), conf.Palette...),
+		seed:                   conf.Seed,
+		invertLuminancePalette: conf.InvertLuminancePalette,
+		inferBackground:        conf.InferBackground,
+		heroWordCount:          conf.HeroWordCount,
+		finalFillPasses:        conf.FinalFillPasses,
+		finalFillFontSize:      conf.FinalFillFontSize,
+		finalFillAnchorSamples: conf.FinalFillAnchorSamples,
+		fillerMaxScale:         conf.FillerMaxScale,
+		minWordLength:          conf.MinWordLength,
+		maxWordLength:          conf.MaxWordLength,
+		stopWords:              conf.StopWords,
 	}
 	if cfg.logger == nil {
 		cfg.logger = slog.Default()
@@ -392,6 +443,12 @@ func normalizeConfig(conf Config) (settings, error) {
 	if cfg.maxPlacementAttempts <= 0 {
 		cfg.maxPlacementAttempts = defaultMaxPlacementAttempts
 	}
+	if cfg.maxHeroAttempts <= 0 {
+		cfg.maxHeroAttempts = cfg.maxPlacementAttempts
+	}
+	if cfg.maxFillerAttempts <= 0 {
+		cfg.maxFillerAttempts = max(250, cfg.maxPlacementAttempts/5)
+	}
 	if cfg.wordPadding < 0 {
 		return cfg, errors.New("word padding cannot be negative")
 	}
@@ -402,7 +459,7 @@ func normalizeConfig(conf Config) (settings, error) {
 		cfg.colorMode = ColorModePalette
 	}
 	switch cfg.colorMode {
-	case ColorModeSource, ColorModePalette, ColorModeLuminancePalette, ColorModeRandomPalette:
+	case ColorModeSource, ColorModePalette, ColorModeLuminancePalette, ColorModeRandomPalette, ColorModeSequentialPalette:
 	default:
 		return cfg, fmt.Errorf("unknown color mode %q", cfg.colorMode)
 	}
@@ -424,13 +481,131 @@ func normalizeConfig(conf Config) (settings, error) {
 	if cfg.finalFillFontSize == 0 {
 		cfg.finalFillFontSize = cfg.minFontSize
 	}
+	if cfg.finalFillAnchorSamples <= 0 {
+		cfg.finalFillAnchorSamples = defaultFinalFillAnchorSamples
+	}
+	if cfg.fillerMaxScale == 0 {
+		cfg.fillerMaxScale = defaultFillerMaxScale
+	}
+	if cfg.fillerMaxScale < 0 || cfg.fillerMaxScale > 1 {
+		return cfg, errors.New("filler max scale must be between 0 and 1")
+	}
 	if cfg.minWordLength <= 0 {
 		cfg.minWordLength = 2
 	}
 	if cfg.maxWordLength < 0 {
 		return cfg, errors.New("max word length cannot be negative")
 	}
+	cfg.stopWords = normalizeStopWords(cfg.stopWords)
 	return cfg, nil
+}
+
+func applyQualityPresetDefaults(conf Config) (Config, error) {
+	switch conf.QualityPreset {
+	case "":
+		return conf, nil
+	case QualityPresetFast:
+		if conf.FillerWordCount == 0 && conf.DensityLevel == 0 {
+			conf.FillerWordCount = 300
+		}
+		if conf.MaxPlacementAttempts == 0 {
+			conf.MaxPlacementAttempts = 1200
+		}
+		if conf.MaxFillerPlacementAttempts == 0 {
+			conf.MaxFillerPlacementAttempts = 180
+		}
+		if conf.FinalFillPasses == 0 {
+			conf.FinalFillPasses = 0
+		}
+		return conf, nil
+	case QualityPresetBalanced:
+		if conf.FillerWordCount == 0 && conf.DensityLevel == 0 {
+			conf.FillerWordCount = 900
+		}
+		if conf.MaxPlacementAttempts == 0 {
+			conf.MaxPlacementAttempts = defaultMaxPlacementAttempts
+		}
+		if conf.MaxFillerPlacementAttempts == 0 {
+			conf.MaxFillerPlacementAttempts = 450
+		}
+		if conf.FinalFillPasses == 0 {
+			conf.FinalFillPasses = 1
+		}
+		return conf, nil
+	case QualityPresetDense:
+		if conf.FillerWordCount == 0 && conf.DensityLevel == 0 {
+			conf.FillerWordCount = 1800
+		}
+		if conf.MaxPlacementAttempts == 0 {
+			conf.MaxPlacementAttempts = 4500
+		}
+		if conf.MaxFillerPlacementAttempts == 0 {
+			conf.MaxFillerPlacementAttempts = 700
+		}
+		if conf.FinalFillPasses == 0 {
+			conf.FinalFillPasses = 3
+		}
+		return conf, nil
+	case QualityPresetPoster:
+		if conf.FillerWordCount == 0 && conf.DensityLevel == 0 {
+			conf.FillerWordCount = 2600
+		}
+		if conf.MaxPlacementAttempts == 0 {
+			conf.MaxPlacementAttempts = 6500
+		}
+		if conf.MaxFillerPlacementAttempts == 0 {
+			conf.MaxFillerPlacementAttempts = 900
+		}
+		if conf.FinalFillPasses == 0 {
+			conf.FinalFillPasses = 5
+		}
+		return conf, nil
+	default:
+		return conf, fmt.Errorf("unknown quality preset %q", conf.QualityPreset)
+	}
+}
+
+func applyPackingProfileDefaults(conf Config) (Config, error) {
+	switch conf.PackingProfile {
+	case "":
+		return conf, nil
+	case PackingProfileBinarySilhouette:
+		if conf.ColorMode == "" {
+			conf.ColorMode = ColorModePalette
+		}
+		if conf.FillerMaxScale == 0 {
+			conf.FillerMaxScale = 0.22
+		}
+		if conf.FinalFillPasses == 0 {
+			conf.FinalFillPasses = 1
+		}
+		if conf.HeroWordCount == 0 {
+			conf.HeroWordCount = 5
+		}
+		return conf, nil
+	case PackingProfileTonalDetail:
+		if conf.ColorMode == "" {
+			conf.ColorMode = ColorModeLuminancePalette
+		}
+		if conf.FillerMaxScale == 0 {
+			conf.FillerMaxScale = 0.16
+		}
+		if conf.FinalFillPasses == 0 {
+			conf.FinalFillPasses = 3
+		}
+		if conf.WordPadding == 0 {
+			conf.WordPadding = 1
+		}
+		if conf.HeroWordCount == 0 {
+			conf.HeroWordCount = 8
+		}
+		if conf.MaxFillerPlacementAttempts == 0 && conf.MaxPlacementAttempts > 0 {
+			conf.MaxFillerPlacementAttempts = max(600, conf.MaxPlacementAttempts/2)
+		}
+		return conf, nil
+	default:
+		return conf, fmt.Errorf("unknown packing profile %q", conf.PackingProfile)
+	}
 }
 
 func buildMask(img image.Image, maskType string, threshold float64, alphaThreshold float64, inferBackground bool) (*shapeMask, error) {
@@ -469,6 +644,7 @@ func buildMask(img image.Image, maskType string, threshold float64, alphaThresho
 
 			if playable {
 				mask.bits[index] = true
+				mask.playableIndexes = append(mask.playableIndexes, index)
 				mask.minX = min(mask.minX, x)
 				mask.minY = min(mask.minY, y)
 				mask.maxX = max(mask.maxX, x)
@@ -551,7 +727,21 @@ func normalizeWord(field string) string {
 	return word
 }
 
-func buildHierarchy(stats []wordStat, minFontSize, maxFontSize, fillerWordCount int, exponent float64, rng *rand.Rand) []wordCandidate {
+func normalizeStopWords(stopWords map[string]struct{}) map[string]struct{} {
+	if len(stopWords) == 0 {
+		return nil
+	}
+	normalized := make(map[string]struct{}, len(stopWords))
+	for word := range stopWords {
+		word = normalizeWord(word)
+		if word != "" {
+			normalized[word] = struct{}{}
+		}
+	}
+	return normalized
+}
+
+func buildHierarchy(stats []wordStat, minFontSize, maxFontSize, fillerWordCount int, exponent float64, fillerMaxScale float64, rng *rand.Rand) []wordCandidate {
 	maxCount := stats[0].Count
 	candidates := make([]wordCandidate, 0, len(stats)+fillerWordCount)
 
@@ -572,7 +762,7 @@ func buildHierarchy(stats []wordStat, minFontSize, maxFontSize, fillerWordCount 
 	sizeRange := float64(maxFontSize - minFontSize)
 	for i := 0; i < fillerWordCount; i++ {
 		level := float64(i) / float64(max(1, fillerWordCount-1))
-		size := float64(minFontSize) + sizeRange*0.42*math.Pow(1-level, 2)
+		size := float64(minFontSize) + sizeRange*fillerMaxScale*math.Pow(1-level, 2)
 		candidates = append(candidates, wordCandidate{
 			Word: weightedWord(stats, totalWeight, rng),
 			Size: size,
@@ -599,23 +789,27 @@ func weightedWord(stats []wordStat, totalWeight int, rng *rand.Rand) string {
 func newPacker(mask *shapeMask, source image.Image, fontPath string, cfg settings) *packer {
 	cellSize := max(cfg.minFontSize*3, 12)
 	return &packer{
-		mask:                mask,
-		source:              source,
-		fontPath:            fontPath,
-		minFontSize:         cfg.minFontSize,
-		wordPadding:         cfg.wordPadding,
-		glyphAlphaThreshold: cfg.glyphAlphaThreshold,
-		maxAttempts:         cfg.maxPlacementAttempts,
-		heroWordCount:       cfg.heroWordCount,
-		finalFillPasses:     cfg.finalFillPasses,
-		finalFillFontSize:   cfg.finalFillFontSize,
-		colorMode:           cfg.colorMode,
-		palette:             cfg.palette,
-		rng:                 rand.New(rand.NewSource(cfg.seed)),
-		occupancy:           make([]bool, mask.width*mask.height),
-		hash:                newSpatialHash(cellSize),
-		glyphs:              make(map[glyphKey]*glyphBitmap),
-		anchors:             mask.anchors(),
+		mask:                   mask,
+		source:                 source,
+		fontPath:               fontPath,
+		minFontSize:            cfg.minFontSize,
+		wordPadding:            cfg.wordPadding,
+		glyphAlphaThreshold:    cfg.glyphAlphaThreshold,
+		maxAttempts:            cfg.maxPlacementAttempts,
+		maxHeroAttempts:        cfg.maxHeroAttempts,
+		maxFillerAttempts:      cfg.maxFillerAttempts,
+		heroWordCount:          cfg.heroWordCount,
+		finalFillPasses:        cfg.finalFillPasses,
+		finalFillFontSize:      cfg.finalFillFontSize,
+		finalFillAnchorSamples: cfg.finalFillAnchorSamples,
+		colorMode:              cfg.colorMode,
+		palette:                cfg.palette,
+		invertLuminancePalette: cfg.invertLuminancePalette,
+		rng:                    rand.New(rand.NewSource(cfg.seed)),
+		occupancy:              make([]bool, mask.width*mask.height),
+		hash:                   newSpatialHash(cellSize),
+		glyphs:                 make(map[glyphKey]*glyphBitmap),
+		anchors:                mask.anchors(),
 	}
 }
 
@@ -629,7 +823,7 @@ func (p *packer) pack(candidates []wordCandidate) []placedWord {
 			continue
 		}
 		p.stamp(word)
-		p.hash.add(word.box)
+		p.hash.add(word.box.expand(p.wordPadding))
 		p.stats.PlacedWords++
 		placed = append(placed, word)
 	}
@@ -644,7 +838,7 @@ func (p *packer) finalFill(stats []wordStat) []placedWord {
 
 	total := p.finalFillPasses * len(stats)
 	for pass := 0; pass < total; pass++ {
-		anchor, ok := p.findUnfilledAnchor(pass * 997)
+		anchor, ok := p.findFinalFillAnchor()
 		if !ok {
 			return placed
 		}
@@ -661,33 +855,70 @@ func (p *packer) finalFill(stats []wordStat) []placedWord {
 			continue
 		}
 		p.stamp(word)
-		p.hash.add(word.box)
+		p.hash.add(word.box.expand(p.wordPadding))
 		p.stats.PlacedWords++
 		placed = append(placed, word)
 	}
 	return placed
 }
 
-func (p *packer) findUnfilledAnchor(offset int) (pointF, bool) {
-	total := len(p.mask.bits)
-	if total == 0 {
+func (p *packer) findFinalFillAnchor() (pointF, bool) {
+	if len(p.mask.playableIndexes) == 0 {
 		return pointF{}, false
 	}
-	start := offset % total
-	for i := 0; i < total; i++ {
-		index := (start + i) % total
-		if !p.mask.bits[index] || p.occupancy[index] {
+
+	bestIndex := -1
+	bestScore := -1
+	for i := 0; i < p.finalFillAnchorSamples; i++ {
+		index := p.mask.playableIndexes[p.rng.Intn(len(p.mask.playableIndexes))]
+		if p.occupancy[index] {
 			continue
 		}
-		return pointF{
-			x: float64(index % p.mask.width),
-			y: float64(index / p.mask.width),
-		}, true
+		score := p.freeNeighborhoodScore(index%p.mask.width, index/p.mask.width, max(2, p.finalFillFontSize))
+		if score > bestScore {
+			bestScore = score
+			bestIndex = index
+		}
 	}
-	return pointF{}, false
+	if bestIndex < 0 {
+		return pointF{}, false
+	}
+	return pointF{
+		x: float64(bestIndex % p.mask.width),
+		y: float64(bestIndex / p.mask.width),
+	}, true
+}
+
+func (p *packer) freeNeighborhoodScore(x, y int, radius int) int {
+	score := 0
+	for yy := y - radius; yy <= y+radius; yy++ {
+		if yy < 0 || yy >= p.mask.height {
+			continue
+		}
+		for xx := x - radius; xx <= x+radius; xx++ {
+			if xx < 0 || xx >= p.mask.width {
+				continue
+			}
+			if (xx-x)*(xx-x)+(yy-y)*(yy-y) > radius*radius {
+				continue
+			}
+			index := yy*p.mask.width + xx
+			if p.mask.bits[index] && !p.occupancy[index] {
+				score++
+			}
+		}
+	}
+	return score
 }
 
 func (p *packer) place(candidate wordCandidate, index int) (placedWord, bool) {
+	renderFailed := false
+	tooLarge := false
+	attemptFailed := false
+	attemptLimit := p.maxFillerAttempts
+	if index < p.heroWordCount {
+		attemptLimit = p.maxHeroAttempts
+	}
 	for _, size := range retrySizes(candidate.Size, float64(p.minFontSize)) {
 		rotations := []bool{false, true}
 		if p.rng.Intn(2) == 1 {
@@ -697,17 +928,17 @@ func (p *packer) place(candidate wordCandidate, index int) (placedWord, bool) {
 		for _, rotated := range rotations {
 			glyph, err := p.renderGlyph(candidate.Word, size, rotated)
 			if err != nil {
-				p.stats.RenderFailures++
+				renderFailed = true
 				continue
 			}
 			if glyph.width >= p.mask.width || glyph.height >= p.mask.height {
-				p.stats.TooLargeRejects++
+				tooLarge = true
 				continue
 			}
 
-			x, y, ok := p.search(glyph, index)
+			x, y, ok := p.search(glyph, index, attemptLimit)
 			if !ok {
-				p.stats.MaxAttemptRejects++
+				attemptFailed = true
 				continue
 			}
 
@@ -721,12 +952,20 @@ func (p *packer) place(candidate wordCandidate, index int) (placedWord, bool) {
 					right:  x + glyph.width,
 					bottom: y + glyph.height,
 				},
-				color: p.chooseColor(x+glyph.width/2, y+glyph.height/2, index, size),
+				color: p.chooseColor(glyph, x, y, index, size),
 			}
 			return word, true
 		}
 	}
 
+	switch {
+	case renderFailed:
+		p.stats.WordsRejectedRenderFailure++
+	case tooLarge:
+		p.stats.WordsRejectedTooLarge++
+	case attemptFailed:
+		p.stats.WordsRejectedAfterAttempts++
+	}
 	return placedWord{}, false
 }
 
@@ -882,7 +1121,7 @@ func alphaAt(img *image.RGBA, x int, y int) uint8 {
 	return img.Pix[offset+3]
 }
 
-func (p *packer) search(glyph *glyphBitmap, index int) (int, int, bool) {
+func (p *packer) search(glyph *glyphBitmap, index int, attemptLimit int) (int, int, bool) {
 	if len(p.anchors) == 0 {
 		return 0, 0, false
 	}
@@ -903,10 +1142,11 @@ func (p *packer) search(glyph *glyphBitmap, index int) (int, int, bool) {
 	for pass := 0; pass < len(p.anchors); pass++ {
 		anchor := p.anchors[(anchorOffset+pass)%len(p.anchors)]
 		for theta := phase; theta <= thetaLimit+phase; theta += thetaStep {
-			if attempts >= p.maxAttempts {
+			if attempts >= attemptLimit {
 				return 0, 0, false
 			}
 			attempts++
+			p.stats.PlacementChecks++
 			radius := spacing * theta
 			centerX := anchor.x + radius*math.Cos(theta)
 			centerY := anchor.y + radius*math.Sin(theta)
@@ -937,43 +1177,95 @@ func (m *shapeMask) anchors() []pointF {
 	}
 
 	addPoint((m.minX+m.maxX)/2, (m.minY+m.maxY)/2)
-	for gy := 1; gy <= 3; gy++ {
-		for gx := 1; gx <= 3; gx++ {
-			x := m.minX + gx*(m.maxX-m.minX)/4
-			y := m.minY + gy*(m.maxY-m.minY)/4
+	for gy := 1; gy <= 9; gy++ {
+		for gx := 1; gx <= 9; gx++ {
+			x := m.minX + gx*(m.maxX-m.minX)/10
+			y := m.minY + gy*(m.maxY-m.minY)/10
 			addPoint(x, y)
 		}
 	}
+	for _, point := range m.distancePeakAnchors(24) {
+		addPoint(int(math.Round(point.x)), int(math.Round(point.y)))
+	}
 	return points
+}
+
+func (m *shapeMask) distancePeakAnchors(limit int) []pointF {
+	type candidate struct {
+		x     int
+		y     int
+		score int
+	}
+	step := max(4, min(m.width, m.height)/48)
+	candidates := make([]candidate, 0)
+	for y := m.minY; y <= m.maxY; y += step {
+		for x := m.minX; x <= m.maxX; x += step {
+			if !m.playable(x, y) {
+				continue
+			}
+			score := m.approxDistanceToBoundary(x, y, step)
+			candidates = append(candidates, candidate{x: x, y: y, score: score})
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].score > candidates[j].score
+	})
+
+	anchors := make([]pointF, 0, min(limit, len(candidates)))
+	minSeparation := float64(step * 3)
+	for _, candidate := range candidates {
+		if len(anchors) >= limit {
+			break
+		}
+		keep := true
+		for _, existing := range anchors {
+			if math.Hypot(existing.x-float64(candidate.x), existing.y-float64(candidate.y)) < minSeparation {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			anchors = append(anchors, pointF{x: float64(candidate.x), y: float64(candidate.y)})
+		}
+	}
+	return anchors
+}
+
+func (m *shapeMask) approxDistanceToBoundary(x, y int, step int) int {
+	for radius := step; radius < max(m.width, m.height); radius += step {
+		if !m.playable(x-radius, y) || !m.playable(x+radius, y) ||
+			!m.playable(x, y-radius) || !m.playable(x, y+radius) ||
+			!m.playable(x-radius, y-radius) || !m.playable(x+radius, y-radius) ||
+			!m.playable(x-radius, y+radius) || !m.playable(x+radius, y+radius) {
+			return radius
+		}
+	}
+	return max(m.width, m.height)
 }
 
 func (p *packer) canPlace(glyph *glyphBitmap, x int, y int) bool {
 	box := rect{left: x, top: y, right: x + glyph.width, bottom: y + glyph.height}
 	if box.left < 0 || box.top < 0 || box.right > p.mask.width || box.bottom > p.mask.height {
-		p.stats.MaskRejects++
+		p.stats.MaskCheckFailures++
 		return false
+	}
+	if p.hash.hasOverlap(box.expand(p.wordPadding)) {
+		if p.glyphOverlapsOccupied(glyph, x, y) {
+			p.stats.CollisionCheckFailures++
+			return false
+		}
 	}
 	if !p.glyphInsideMask(glyph, x, y) {
-		p.stats.MaskRejects++
-		return false
-	}
-	if !p.hash.hasOverlap(box) {
-		return true
-	}
-	if p.glyphOverlapsOccupied(glyph, x, y) {
-		p.stats.CollisionRejects++
+		p.stats.MaskCheckFailures++
 		return false
 	}
 	return true
 }
 
 func (p *packer) glyphInsideMask(glyph *glyphBitmap, x int, y int) bool {
-	for _, span := range glyph.spans {
-		targetY := y + span.y
-		for targetX := x + span.x1; targetX <= x+span.x2; targetX++ {
-			if !p.mask.playable(targetX, targetY) {
-				return false
-			}
+	for _, pixel := range glyph.pixels {
+		if !p.mask.playable(x+pixel.x, y+pixel.y) {
+			return false
 		}
 	}
 	return true
@@ -981,12 +1273,17 @@ func (p *packer) glyphInsideMask(glyph *glyphBitmap, x int, y int) bool {
 
 func (p *packer) glyphOverlapsOccupied(glyph *glyphBitmap, x int, y int) bool {
 	padding := p.wordPadding
-	for _, span := range glyph.spans {
-		for targetY := y + span.y - padding; targetY <= y+span.y+padding; targetY++ {
+	for _, pixel := range glyph.pixels {
+		for dy := -padding; dy <= padding; dy++ {
+			targetY := y + pixel.y + dy
 			if targetY < 0 || targetY >= p.mask.height {
 				continue
 			}
-			for targetX := x + span.x1 - padding; targetX <= x+span.x2+padding; targetX++ {
+			for dx := -padding; dx <= padding; dx++ {
+				if padding > 0 && dx*dx+dy*dy > padding*padding {
+					continue
+				}
+				targetX := x + pixel.x + dx
 				if targetX < 0 || targetX >= p.mask.width {
 					continue
 				}
@@ -1001,16 +1298,24 @@ func (p *packer) glyphOverlapsOccupied(glyph *glyphBitmap, x int, y int) bool {
 
 func (p *packer) stamp(word placedWord) {
 	padding := p.wordPadding
-	for _, span := range word.glyph.spans {
-		for targetY := word.y + span.y - padding; targetY <= word.y+span.y+padding; targetY++ {
+	for _, pixel := range word.glyph.pixels {
+		for dy := -padding; dy <= padding; dy++ {
+			targetY := word.y + pixel.y + dy
 			if targetY < 0 || targetY >= p.mask.height {
 				continue
 			}
-			for targetX := word.x + span.x1 - padding; targetX <= word.x+span.x2+padding; targetX++ {
+			for dx := -padding; dx <= padding; dx++ {
+				if padding > 0 && dx*dx+dy*dy > padding*padding {
+					continue
+				}
+				targetX := word.x + pixel.x + dx
 				if targetX < 0 || targetX >= p.mask.width {
 					continue
 				}
-				p.occupancy[targetY*p.mask.width+targetX] = true
+				index := targetY*p.mask.width + targetX
+				if p.mask.bits[index] {
+					p.occupancy[index] = true
+				}
 			}
 		}
 	}
@@ -1030,15 +1335,15 @@ func (m *shapeMask) lum(x, y int) float64 {
 	return m.luminance[y*m.width+x]
 }
 
-func (p *packer) chooseColor(x, y int, index int, size float64) color.Color {
+func (p *packer) chooseColor(glyph *glyphBitmap, x int, y int, index int, size float64) color.Color {
 	switch p.colorMode {
 	case ColorModeSource:
-		return sampleColor(p.source, x, y)
+		return averageSourceColor(p.source, glyph, x, y)
 	case ColorModeLuminancePalette:
-		return p.paletteByLuminance(x, y)
-	case ColorModeRandomPalette:
+		return p.paletteByLuminance(glyph, x, y)
+	case ColorModePalette, ColorModeRandomPalette:
 		return p.palette[p.rng.Intn(len(p.palette))]
-	case ColorModePalette:
+	case ColorModeSequentialPalette:
 		fallthrough
 	default:
 		paletteIndex := (index*31 + int(math.Round(size))*17) % len(p.palette)
@@ -1046,13 +1351,33 @@ func (p *packer) chooseColor(x, y int, index int, size float64) color.Color {
 	}
 }
 
-func (p *packer) paletteByLuminance(x, y int) color.Color {
+func (p *packer) paletteByLuminance(glyph *glyphBitmap, x int, y int) color.Color {
 	if len(p.palette) == 1 {
 		return p.palette[0]
 	}
-	lum := p.mask.lum(x, y)
+	lum := p.averageLuminance(glyph, x, y)
+	if p.invertLuminancePalette {
+		lum = 1 - lum
+	}
 	index := int(math.Round(lum * float64(len(p.palette)-1)))
 	return p.palette[min(max(index, 0), len(p.palette)-1)]
+}
+
+func (p *packer) averageLuminance(glyph *glyphBitmap, x int, y int) float64 {
+	if len(glyph.pixels) == 0 {
+		return p.mask.lum(x, y)
+	}
+	var weightedLum float64
+	var weight float64
+	for _, pixel := range glyph.pixels {
+		alpha := float64(pixel.alpha) / 255
+		weightedLum += p.mask.lum(x+pixel.x, y+pixel.y) * alpha
+		weight += alpha
+	}
+	if weight == 0 {
+		return p.mask.lum(x, y)
+	}
+	return weightedLum / weight
 }
 
 func (p *packer) finalStats() Stats {
@@ -1143,6 +1468,34 @@ func sampleColor(img image.Image, x, y int) color.Color {
 	return img.At(bounds.Min.X+x, bounds.Min.Y+y)
 }
 
+func averageSourceColor(img image.Image, glyph *glyphBitmap, x, y int) color.Color {
+	if len(glyph.pixels) == 0 {
+		return sampleColor(img, x, y)
+	}
+	var rSum, gSum, bSum, aSum, weightSum float64
+	bounds := img.Bounds()
+	for _, pixel := range glyph.pixels {
+		targetX := min(max(x+pixel.x, 0), bounds.Dx()-1)
+		targetY := min(max(y+pixel.y, 0), bounds.Dy()-1)
+		r, g, b, a := img.At(bounds.Min.X+targetX, bounds.Min.Y+targetY).RGBA()
+		weight := float64(pixel.alpha) / 255
+		rSum += (float64(r) / 257.0) * weight
+		gSum += (float64(g) / 257.0) * weight
+		bSum += (float64(b) / 257.0) * weight
+		aSum += (float64(a) / 257.0) * weight
+		weightSum += weight
+	}
+	if weightSum == 0 {
+		return sampleColor(img, x, y)
+	}
+	return color.RGBA{
+		R: uint8(math.Round(rSum / weightSum)),
+		G: uint8(math.Round(gSum / weightSum)),
+		B: uint8(math.Round(bSum / weightSum)),
+		A: uint8(math.Round(aSum / weightSum)),
+	}
+}
+
 func newSpatialHash(cellSize int) *spatialHash {
 	return &spatialHash{
 		cellSize: max(1, cellSize),
@@ -1185,4 +1538,16 @@ func (s *spatialHash) cellRange(box rect) (int, int, int, int) {
 
 func (a rect) overlaps(b rect) bool {
 	return a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top
+}
+
+func (a rect) expand(padding int) rect {
+	if padding <= 0 {
+		return a
+	}
+	return rect{
+		left:   a.left - padding,
+		top:    a.top - padding,
+		right:  a.right + padding,
+		bottom: a.bottom + padding,
+	}
 }
