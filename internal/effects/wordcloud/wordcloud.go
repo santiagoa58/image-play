@@ -8,20 +8,28 @@ import (
 )
 
 func GenWordCloud(inpath, outpath, textpath string) error {
-	// temp test code to show the mask image
+	outputPath, err := textutils.ResolveOutputPath(inpath, outpath, "wordcloud")
+	if err != nil {
+		return fmt.Errorf("resolve output path: %w", err)
+	}
+
 	mask, err := imageutil.PrepareMask(inpath)
 	if err != nil {
-		return err
+		return fmt.Errorf("prepare mask: %w", err)
 	}
 	defer mask.Close()
+
 	countHeap, err := textutils.CountWords(textpath)
 	if err != nil {
-		return err
+		return fmt.Errorf("count words: %w", err)
 	}
-	if err := mask.IMWrite(outpath); err != nil {
-		return err
+
+	if err := mask.IMWrite(outputPath); err != nil {
+		return fmt.Errorf("write thresholded image to %q: %w", outputPath, err)
 	}
-	fmt.Printf("Word count heap:\n%v\n", countHeap.RankedString(10))
+
+	fmt.Printf("Word count heap:\n%s\n", countHeap.RankedString(10))
+	fmt.Printf("✅ Done! Saved to %s\n", outputPath)
 
 	return nil
 }

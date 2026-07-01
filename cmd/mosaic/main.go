@@ -83,14 +83,10 @@ func mosaicRun(in, out string, logger *slog.Logger) error {
 		return fmt.Errorf("open input image %q: %w", in, err)
 	}
 
-	finalOutputPath, err := textutils.ResolveOutputPath(in, out, textutils.OutputPathOptions{
-		DefaultExt:    defaultOutputExt,
-		DefaultSuffix: defaultOutputSuffix,
-	})
+	finalOutputPath, err := textutils.ResolveOutputPath(in, out, "textmosaic")
 	if err != nil {
 		return fmt.Errorf("resolve output path: %w", err)
 	}
-
 	logger.Debug("resolved output path", "path", finalOutputPath)
 
 	if err := os.MkdirAll(filepath.Dir(finalOutputPath), 0755); err != nil {
