@@ -1,4 +1,4 @@
-package util
+package textutils
 
 import (
 	"container/heap"

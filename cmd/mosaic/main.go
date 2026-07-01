@@ -12,7 +12,7 @@ import (
 	"github.com/disintegration/imaging"
 	"github.com/santiagoa58/image-play/internal/effects/textmosaic"
 	"github.com/santiagoa58/image-play/internal/effects/wordcloud"
-	"github.com/santiagoa58/image-play/internal/util"
+	"github.com/santiagoa58/image-play/internal/textutils"
 )
 
 const (
@@ -83,7 +83,7 @@ func mosaicRun(in, out string, logger *slog.Logger) error {
 		return fmt.Errorf("open input image %q: %w", in, err)
 	}
 
-	finalOutputPath, err := util.ResolveOutputPath(in, out, util.OutputPathOptions{
+	finalOutputPath, err := textutils.ResolveOutputPath(in, out, textutils.OutputPathOptions{
 		DefaultExt:    defaultOutputExt,
 		DefaultSuffix: defaultOutputSuffix,
 	})
