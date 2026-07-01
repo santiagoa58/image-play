@@ -22,6 +22,7 @@ func CountWords(txtPath string) (WordHeap, error) {
 	defer txtFile.Close()
 
 	counts := make(map[string]int)
+
 	scanner := bufio.NewScanner(txtFile)
 	scanner.Buffer(make([]byte, initialScanBufferSize), maxScanLineSize)
 
@@ -41,6 +42,8 @@ func CountWords(txtPath string) (WordHeap, error) {
 	return wordMapToHeap(counts), nil
 }
 
+// countWordsUTF8 extracts Unicode letters/numbers, normalizes them to lowercase,
+// filters stop words, and updates counts.
 func countWordsUTF8(s string, counts map[string]int) {
 	var word strings.Builder
 
@@ -58,8 +61,15 @@ func flushWord(word *strings.Builder, counts map[string]int) {
 	if word.Len() == 0 {
 		return
 	}
-	counts[word.String()]++
+
+	w := word.String()
 	word.Reset()
+
+	if IsStopWord(w) {
+		return
+	}
+
+	counts[w]++
 }
 
 func wordMapToHeap(wordMap map[string]int) WordHeap {
