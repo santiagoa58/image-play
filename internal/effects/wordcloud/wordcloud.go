@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/santiagoa58/image-play/internal/imageutil"
-	"github.com/santiagoa58/image-play/internal/util"
+	"github.com/santiagoa58/image-play/internal/textutils"
 )
 
 func GenWordCloud(inpath, outpath, textpath string) error {
@@ -14,11 +14,14 @@ func GenWordCloud(inpath, outpath, textpath string) error {
 		return err
 	}
 	defer mask.Close()
-	countHeap, err := util.CountWords(textpath)
+	countHeap, err := textutils.CountWords(textpath)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("Word count heap: %v\n", countHeap)
-	mask.IMWrite(outpath)
+	if err := mask.IMWrite(outpath); err != nil {
+		return err
+	}
+	fmt.Printf("Word count heap:\n%v\n", countHeap.RankedString(10))
+
 	return nil
 }
