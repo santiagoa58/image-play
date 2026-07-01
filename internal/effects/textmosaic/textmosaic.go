@@ -49,9 +49,6 @@ type Config struct {
 	// Use 0 for the default of 14px.
 	BaseFontSize float64
 
-	// IsBlackAndWhite converts the processed image to grayscale before sampling.
-	IsBlackAndWhite bool
-
 	// ContrastPercent adjusts image contrast before sampling.
 	// 0 means no change. Positive values increase contrast; negative values decrease it.
 	ContrastPercent float64
@@ -164,9 +161,7 @@ func applyImageProcessing(conf Config) image.Image {
 	if conf.ContrastPercent != 0 {
 		img = imaging.AdjustContrast(img, conf.ContrastPercent)
 	}
-	if conf.IsBlackAndWhite {
-		img = imaging.Grayscale(img)
-	}
+	img = imaging.Grayscale(img)
 
 	return img
 }

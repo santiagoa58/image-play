@@ -11,6 +11,7 @@ import (
 
 	"github.com/disintegration/imaging"
 	"github.com/santiagoa58/image-play/internal/effects/textmosaic"
+	"github.com/santiagoa58/image-play/internal/effects/wordcloud"
 	"github.com/santiagoa58/image-play/internal/util"
 )
 
@@ -19,6 +20,11 @@ const (
 	appVersion          = "dev"
 	defaultOutputExt    = ".png"
 	defaultOutputSuffix = "_mosaic"
+)
+
+const (
+	fontPath = "./fonts/NotoSansMono-VariableFont_wdth,wght.ttf"
+	textFile = "./testdata/text/sample_text_message.txt"
 )
 
 func main() {
@@ -30,25 +36,14 @@ func main() {
 
 func run() error {
 	var (
-		inputPath    = flag.String("in", "", "Path to input image (PNG, JPEG, WebP, etc.) [required]")
-		outputPath   = flag.String("out", "", "Output path. Can be file or directory. Empty = input_mosaic.png")
-		width        = flag.Int("width", 0, "Target width in pixels. Common: 1080, 1920, 3840. 0 = original size")
-		fontPath     = flag.String("font", "", "Path to monospace TTF/OTF font [required]")
-		text         = flag.String("text", "", "Text to repeat across the mosaic")
-		textFile     = flag.String("text-file", "", "Path to UTF-8 text file to use as mosaic text")
-		bw           = flag.Bool("bw", false, "Convert source image to black and white before sampling")
-		contrast     = flag.Float64("contrast", 0, "Contrast adjustment percent. 0 = no change, 20 = increase by 20%")
-		overwrite    = flag.Bool("overwrite", true, "Allow overwriting an existing output file")
-		createDirs   = flag.Bool("create-dirs", true, "Create missing output directories")
-		verbose      = flag.Bool("v", false, "Enable verbose/debug logging")
-		baseFontSize = flag.Float64("font-size", 0, "Base font size before scaling. 0 = default")
+		inputPath  = flag.String("in", "", "Path to input image (PNG, JPEG, WebP, etc.) [required]")
+		outputPath = flag.String("out", "", "Output path. Can be file or directory. Empty = input_mosaic.png")
+		verbose    = flag.Bool("v", true, "Enable verbose/debug logging")
 	)
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "%s — image effects toolkit\n\n", appName)
 		fmt.Fprint(os.Stderr, "Usage:\n")
-		fmt.Fprintf(os.Stderr, "  %s -in photo.jpg -font /path/to/monofont.ttf -text \"hello world\"\n", appName)
-		fmt.Fprintf(os.Stderr, "  %s -in photo.jpg -out result.png -width 1920 -font /path/to/monofont.ttf -text-file message.txt\n\n", appName)
 		fmt.Fprint(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()
 		fmt.Fprint(os.Stderr, "\nCommon widths: 1080 (HD), 1920 (Full HD), 3840 (4K)\n")
@@ -59,28 +54,38 @@ func run() error {
 	logger := newLogger(*verbose)
 	logger.Info("mosaic starting", "version", appVersion)
 
-	if err := validateRequiredFlags(*inputPath, *fontPath); err != nil {
+	if err := validateRequiredFlags(*inputPath); err != nil {
 		flag.Usage()
 		return err
 	}
 
-	mosaicText, err := resolveText(*text, *textFile)
+	// err := mosaicRun(*inputPath, *outputPath, logger)
+	// if err != nil {
+	// 	return fmt.Errorf("mosaic run: %w", err)
+	// }
+	err := wordcloud.GenWordCloud(*inputPath, *outputPath, textFile)
+	if err != nil {
+		return fmt.Errorf("wordcloud run: %w", err)
+	}
+	return nil
+}
+
+func mosaicRun(in, out string, logger *slog.Logger) error {
+	mosaicText, err := resolveText(textFile)
 	if err != nil {
 		return err
 	}
 
-	logger.Debug("loading image", "path", *inputPath)
+	logger.Debug("loading image", "path", in)
 
-	img, err := imaging.Open(*inputPath)
+	img, err := imaging.Open(in)
 	if err != nil {
-		return fmt.Errorf("open input image %q: %w", *inputPath, err)
+		return fmt.Errorf("open input image %q: %w", in, err)
 	}
 
-	finalOutputPath, err := util.ResolveOutputPath(*inputPath, *outputPath, util.OutputPathOptions{
-		DefaultExt:        defaultOutputExt,
-		DefaultSuffix:     defaultOutputSuffix,
-		AllowCreateParent: *createDirs,
-		AllowOverwrite:    *overwrite,
+	finalOutputPath, err := util.ResolveOutputPath(in, out, util.OutputPathOptions{
+		DefaultExt:    defaultOutputExt,
+		DefaultSuffix: defaultOutputSuffix,
 	})
 	if err != nil {
 		return fmt.Errorf("resolve output path: %w", err)
@@ -88,21 +93,18 @@ func run() error {
 
 	logger.Debug("resolved output path", "path", finalOutputPath)
 
-	if *createDirs {
-		if err := os.MkdirAll(filepath.Dir(finalOutputPath), 0755); err != nil {
-			return fmt.Errorf("create output directory: %w", err)
-		}
+	if err := os.MkdirAll(filepath.Dir(finalOutputPath), 0755); err != nil {
+		return fmt.Errorf("create output directory: %w", err)
 	}
 
 	txtMosaicImg, err := textmosaic.Generate(textmosaic.Config{
 		Logger:          logger,
 		Text:            mosaicText,
 		InputImage:      img,
-		MonoFontPath:    *fontPath,
-		TargetWidth:     *width,
-		BaseFontSize:    *baseFontSize,
-		IsBlackAndWhite: *bw,
-		ContrastPercent: *contrast,
+		MonoFontPath:    fontPath,
+		TargetWidth:     0,
+		BaseFontSize:    0,
+		ContrastPercent: 0,
 	})
 	if err != nil {
 		return fmt.Errorf("generate mosaic: %w", err)
@@ -135,29 +137,16 @@ func newLogger(verbose bool) *slog.Logger {
 	}))
 }
 
-func validateRequiredFlags(inputPath, fontPath string) error {
+func validateRequiredFlags(inputPath string) error {
 	if strings.TrimSpace(inputPath) == "" {
 		return errors.New("missing required flag: -in")
-	}
-
-	if strings.TrimSpace(fontPath) == "" {
-		return errors.New("missing required flag: -font")
 	}
 
 	return nil
 }
 
-func resolveText(text, textFile string) (string, error) {
-	text = strings.TrimSpace(text)
+func resolveText(textFile string) (string, error) {
 	textFile = strings.TrimSpace(textFile)
-
-	if text != "" && textFile != "" {
-		return "", errors.New("use either -text or -text-file, not both")
-	}
-
-	if text != "" {
-		return text, nil
-	}
 
 	if textFile != "" {
 		b, err := os.ReadFile(textFile)
