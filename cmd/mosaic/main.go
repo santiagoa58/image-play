@@ -23,8 +23,8 @@ const (
 )
 
 const (
-	fontPath = "./fonts/NotoSansMono-VariableFont_wdth,wght.ttf"
-	textFile = "./testdata/text/sample_text_message.txt"
+	fontPath        = "./fonts/NotoSansMono-VariableFont_wdth,wght.ttf"
+	defaultTextFile = "./testdata/text/sample_text_message.txt"
 )
 
 func main() {
@@ -38,20 +38,18 @@ func run() error {
 	var (
 		inputPath  = flag.String("in", "", "Path to input image (PNG, JPEG, WebP, etc.) [required]")
 		outputPath = flag.String("out", "", "Output path. Can be file or directory. Empty = input_mosaic.png")
-		verbose    = flag.Bool("v", true, "Enable verbose/debug logging")
+		textFile   = flag.String("text", defaultTextFile, "Path to the text file to use for the mosaic. If empty, uses default text file.")
 	)
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "%s — image effects toolkit\n\n", appName)
 		fmt.Fprint(os.Stderr, "Usage:\n")
-		fmt.Fprint(os.Stderr, "Flags:\n")
 		flag.PrintDefaults()
-		fmt.Fprint(os.Stderr, "\nCommon widths: 1080 (HD), 1920 (Full HD), 3840 (4K)\n")
 	}
 
 	flag.Parse()
 
-	logger := newLogger(*verbose)
+	logger := slog.Default()
 	logger.Info("mosaic starting", "version", appVersion)
 
 	if err := validateRequiredFlags(*inputPath); err != nil {
@@ -59,18 +57,19 @@ func run() error {
 		return err
 	}
 
-	// err := mosaicRun(*inputPath, *outputPath, logger)
+	// err := mosaicRun(*inputPath, *outputPath, *textFile)
 	// if err != nil {
 	// 	return fmt.Errorf("mosaic run: %w", err)
 	// }
-	err := wordcloud.GenWordCloud(*inputPath, *outputPath, textFile)
+	err := wordcloud.GenWordCloud(*inputPath, *outputPath, *textFile)
 	if err != nil {
 		return fmt.Errorf("wordcloud run: %w", err)
 	}
 	return nil
 }
 
-func mosaicRun(in, out string, logger *slog.Logger) error {
+func mosaicRun(in, out, textFile string) error {
+	logger := slog.Default()
 	mosaicText, err := resolveText(textFile)
 	if err != nil {
 		return err
@@ -85,7 +84,7 @@ func mosaicRun(in, out string, logger *slog.Logger) error {
 
 	finalOutputPath, err := textutils.ResolveOutputPath(in, out, "textmosaic")
 	if err != nil {
-		return fmt.Errorf("resolve output path: %w", err)
+		return err
 	}
 	logger.Debug("resolved output path", "path", finalOutputPath)
 
@@ -120,17 +119,6 @@ func mosaicRun(in, out string, logger *slog.Logger) error {
 
 	fmt.Printf("✅ Done! Saved to %s\n", finalOutputPath)
 	return nil
-}
-
-func newLogger(verbose bool) *slog.Logger {
-	level := slog.LevelInfo
-	if verbose {
-		level = slog.LevelDebug
-	}
-
-	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: level,
-	}))
 }
 
 func validateRequiredFlags(inputPath string) error {

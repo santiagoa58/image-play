@@ -1,63 +1,50 @@
 package textutils
 
 import (
-	"bufio"
 	"container/heap"
 	"fmt"
-	"os"
 	"strings"
 	"unicode"
 )
 
-const (
-	initialScanBufferSize = 64 * 1024       // 64 KiB allocated up front
-	maxScanLineSize       = 4 * 1024 * 1024 // 4 MiB max allowed line
-)
-
+// CountWords counts words in a text file using streaming (low memory usage)
+// and returns a heap of word frequencies (most frequent first).
 func CountWords(txtPath string) (WordHeap, error) {
-	txtFile, err := os.Open(txtPath)
-	if err != nil {
-		return nil, fmt.Errorf("open text file %q: %w", txtPath, err)
-	}
-	defer txtFile.Close()
-
 	counts := make(map[string]int)
 
-	scanner := bufio.NewScanner(txtFile)
-	scanner.Buffer(make([]byte, initialScanBufferSize), maxScanLineSize)
-
-	for scanner.Scan() {
-		// Count words in the current line of text
-		countWordsUTF8(scanner.Text(), counts)
-	}
-
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("scan text file %q: %w", txtPath, err)
+	err := ProcessLines(txtPath, func(line string) error {
+		countWordsInLine(line, counts)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("count words in %q: %w", txtPath, err)
 	}
 
 	if len(counts) == 0 {
-		return nil, fmt.Errorf("text file %q has no words", txtPath)
+		return nil, fmt.Errorf("text file %q contains no words", txtPath)
 	}
 
-	return wordMapToHeap(counts), nil
+	return buildWordHeap(counts), nil
 }
 
-// countWordsUTF8 extracts Unicode letters/numbers, normalizes them to lowercase,
-// filters stop words, and updates counts.
-func countWordsUTF8(s string, counts map[string]int) {
+// countWordsInLine extracts words using Unicode rules and updates the count map.
+// It is designed to be allocation-efficient for large files.
+func countWordsInLine(line string, counts map[string]int) {
 	var word strings.Builder
 
-	for _, r := range s {
+	for _, r := range line {
 		if unicode.IsLetter(r) || unicode.IsNumber(r) {
 			word.WriteRune(unicode.ToLower(r))
 			continue
 		}
-		flushWord(&word, counts)
+		// Non-word character → flush current word
+		processWord(&word, counts)
 	}
-	flushWord(&word, counts)
+	// Flush any remaining word at the end of the line
+	processWord(&word, counts)
 }
 
-func flushWord(word *strings.Builder, counts map[string]int) {
+func processWord(word *strings.Builder, counts map[string]int) {
 	if word.Len() == 0 {
 		return
 	}
@@ -72,16 +59,16 @@ func flushWord(word *strings.Builder, counts map[string]int) {
 	counts[w]++
 }
 
-func wordMapToHeap(wordMap map[string]int) WordHeap {
-	wHeap := make(WordHeap, 0, len(wordMap))
+func buildWordHeap(wordMap map[string]int) WordHeap {
+	h := make(WordHeap, 0, len(wordMap))
 
 	for word, count := range wordMap {
-		wHeap = append(wHeap, WordCount{
+		h = append(h, WordCount{
 			Word:  word,
 			Count: count,
 		})
 	}
 
-	heap.Init(&wHeap)
-	return wHeap
+	heap.Init(&h)
+	return h
 }
