@@ -3,6 +3,8 @@ package mathutil
 import (
 	"math"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestShapeAwareStep(t *testing.T) {
@@ -72,10 +74,21 @@ func TestShapeAwareStep(t *testing.T) {
 				tt.gradientX,
 				tt.gradientY,
 			)
-
-			assertClose(t, "x", gotX, tt.wantX)
-			assertClose(t, "y", gotY, tt.wantY)
-			assertClose(t, "angle", gotAngle, tt.wantAngle)
+			assert.InDelta(t, tt.wantX, gotX, 1e-9)
+			assert.InDelta(t, tt.wantY, gotY, 1e-9)
+			assert.InDelta(t, tt.wantAngle, gotAngle, 1e-9)
 		})
+	}
+}
+
+// TestShapeAwareStep_Properties tests mathematical invariants
+func TestShapeAwareStep_Properties(t *testing.T) {
+	t.Parallel()
+	for i := 0; i < 100; i++ {
+		angle := float64(i) * 0.1
+		_, _, newAngle := ShapeAwareStep(0, 0, angle, 0.5, 1.0, 0.3, 1, 0)
+		if newAngle <= angle {
+			t.Errorf("angle should always increase")
+		}
 	}
 }

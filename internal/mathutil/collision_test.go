@@ -1,6 +1,10 @@
 package mathutil
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestCollides(t *testing.T) {
 	tests := []struct {
@@ -62,14 +66,11 @@ func TestCollides(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := Collides(tt.x1, tt.y1, tt.r1, tt.x2, tt.y2, tt.r2)
-			if got != tt.want {
-				t.Fatalf("Collides() = %v; want %v", got, tt.want)
-			}
+			assert.Equal(t, tt.want, got, "Collides()")
 
+			// Verify symmetry (commutativity)
 			reversed := Collides(tt.x2, tt.y2, tt.r2, tt.x1, tt.y1, tt.r1)
-			if reversed != tt.want {
-				t.Fatalf("Collides() reversed = %v; want %v", reversed, tt.want)
-			}
+			assert.Equal(t, tt.want, reversed, "Collides() should be symmetric")
 		})
 	}
 }
@@ -158,14 +159,11 @@ func TestCollidesRect(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := CollidesRect(tt.x1, tt.y1, tt.w1, tt.h1, tt.x2, tt.y2, tt.w2, tt.h2)
-			if got != tt.want {
-				t.Fatalf("CollidesRect() = %v; want %v", got, tt.want)
-			}
+			assert.Equal(t, tt.want, got, "CollidesRect()")
 
+			// Verify symmetry
 			reversed := CollidesRect(tt.x2, tt.y2, tt.w2, tt.h2, tt.x1, tt.y1, tt.w1, tt.h1)
-			if reversed != tt.want {
-				t.Fatalf("CollidesRect() reversed = %v; want %v", reversed, tt.want)
-			}
+			assert.Equal(t, tt.want, reversed, "CollidesRect() should be symmetric")
 		})
 	}
 }

@@ -1,8 +1,9 @@
 package mathutil
 
 import (
-	"math"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestGradient(t *testing.T) {
@@ -50,17 +51,8 @@ func TestGradient(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gotDX, gotDY := Gradient(tt.field, tt.x, tt.y)
-			assertClose(t, "dx", gotDX, tt.wantDX)
-			assertClose(t, "dy", gotDY, tt.wantDY)
+			assert.InDelta(t, tt.wantDX, gotDX, 1e-9, "dx")
+			assert.InDelta(t, tt.wantDY, gotDY, 1e-9, "dy")
 		})
-	}
-}
-
-func assertClose(t *testing.T, name string, got, want float64) {
-	t.Helper()
-
-	const tolerance = 1e-9
-	if math.Abs(got-want) > tolerance {
-		t.Fatalf("%s = %.12g; want %.12g", name, got, want)
 	}
 }

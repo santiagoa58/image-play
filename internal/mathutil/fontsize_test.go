@@ -1,8 +1,11 @@
 package mathutil
 
 import (
+	"fmt"
 	"math"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 func TestCalculateFontSize(t *testing.T) {
@@ -65,7 +68,7 @@ func TestCalculateFontSize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := CalculateFontSize(tt.count, tt.maxCount, maxFontSize, minFontSize)
-			assertClose(t, "font size", got, tt.want)
+			assert.InDelta(t, tt.want, got, 1e-9)
 		})
 	}
 }
@@ -78,14 +81,17 @@ func TestCalculateFontSizeIsMonotonic(t *testing.T) {
 	)
 
 	previous := CalculateFontSize(0, maxCount, maxFontSize, minFontSize)
+
 	for count := 1; count <= int(maxCount); count++ {
 		current := CalculateFontSize(count, maxCount, maxFontSize, minFontSize)
-		if current <= previous {
-			t.Fatalf("font size for count %d = %f; want greater than previous %f", count, current, previous)
-		}
-		if current < minFontSize || current > maxFontSize {
-			t.Fatalf("font size for count %d = %f; want within [%f, %f]", count, current, minFontSize, maxFontSize)
-		}
+
+		assert.Greater(t, current, previous,
+			fmt.Sprintf("font size should be strictly increasing: count=%d, current=%f, previous=%f",
+				count, current, previous))
+
+		assert.InDelta(t, current, minFontSize, maxFontSize, // rough bounds check
+			"font size should stay within min/max range")
+
 		previous = current
 	}
 }
