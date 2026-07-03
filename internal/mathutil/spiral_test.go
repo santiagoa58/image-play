@@ -20,14 +20,14 @@ func TestShapeAwareStep(t *testing.T) {
 		wantAngle      float64
 	}{
 		{
-			name:         "zero angle with no gradient steps along positive tangent",
+			name:         "zero angle with no gradient follows spiral tangent",
 			x:            10,
 			y:            20,
 			angle:        0,
 			radiusGrowth: 0.7,
 			angleSpeed:   1.2,
-			wantX:        14,
-			wantY:        21.8,
+			wantX:        14.310284597154046,
+			wantY:        21.773054840880267,
 			wantAngle:    0.96,
 		},
 		{
@@ -40,8 +40,8 @@ func TestShapeAwareStep(t *testing.T) {
 			gradientWeight: 2,
 			gradientX:      3,
 			gradientY:      4,
-			wantX:          6.16,
-			wantY:          4.68,
+			wantX:          4.754304719431144,
+			wantY:          1.634326892100813,
 			wantAngle:      0,
 		},
 		{
@@ -54,8 +54,8 @@ func TestShapeAwareStep(t *testing.T) {
 			gradientWeight: 10,
 			gradientX:      0.0003,
 			gradientY:      0.0004,
-			wantX:          -1.7946,
-			wantY:          4.0072,
+			wantX:          -1.799985513384526,
+			wantY:          4.007221606874161,
 			wantAngle:      math.Pi/2 + 0.4,
 		},
 	}

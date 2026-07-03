@@ -25,8 +25,20 @@ func TestCalculateFontSize(t *testing.T) {
 			want:     minFontSize,
 		},
 		{
+			name:     "negative max count falls back to minimum",
+			count:    10,
+			maxCount: -5,
+			want:     minFontSize,
+		},
+		{
 			name:     "zero count maps to minimum",
 			count:    0,
+			maxCount: maxCount,
+			want:     minFontSize,
+		},
+		{
+			name:     "negative count maps to minimum",
+			count:    -1,
 			maxCount: maxCount,
 			want:     minFontSize,
 		},
@@ -37,10 +49,16 @@ func TestCalculateFontSize(t *testing.T) {
 			want:     maxFontSize,
 		},
 		{
+			name:     "count above max count is clamped to maximum",
+			count:    150,
+			maxCount: maxCount,
+			want:     maxFontSize,
+		},
+		{
 			name:     "intermediate count follows logarithmic scale",
 			count:    9,
 			maxCount: maxCount,
-			want:     minFontSize + (maxFontSize-minFontSize)*math.Log(10)/math.Log(101),
+			want:     minFontSize + (maxFontSize-minFontSize)*math.Log1p(9)/math.Log1p(maxCount),
 		},
 	}
 

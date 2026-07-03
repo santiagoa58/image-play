@@ -40,6 +40,18 @@ func TestCollides(t *testing.T) {
 			want: false,
 		},
 		{
+			name: "zero radius point inside positive radius collides",
+			x1:   1, y1: 1, r1: 0,
+			x2: 1, y2: 1, r2: 2,
+			want: true,
+		},
+		{
+			name: "negative radius is invalid and does not collide",
+			x1:   0, y1: 0, r1: -1,
+			x2: 0, y2: 0, r2: 2,
+			want: false,
+		},
+		{
 			name: "diagonal distance uses pythagorean length",
 			x1:   0, y1: 0, r1: 2.5,
 			x2: 3, y2: 4, r2: 2.6,
@@ -127,6 +139,18 @@ func TestCollidesRect(t *testing.T) {
 			name: "zero height rectangle has no area to overlap",
 			x1:   0, y1: 0, w1: 4, h1: 0,
 			x2: 0, y2: 0, w2: 4, h2: 4,
+			want: false,
+		},
+		{
+			name: "negative width rectangle is invalid",
+			x1:   10, y1: 0, w1: -2, h1: 4,
+			x2: 5, y2: 0, w2: 10, h2: 4,
+			want: false,
+		},
+		{
+			name: "negative height rectangle is invalid",
+			x1:   0, y1: 10, w1: 4, h1: -2,
+			x2: 0, y2: 5, w2: 4, h2: 10,
 			want: false,
 		},
 	}

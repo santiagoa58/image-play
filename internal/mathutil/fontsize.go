@@ -2,12 +2,15 @@ package mathutil
 
 import "math"
 
-// CalculateFontSize maps word frequency to a font size using a log scale.
-// This prevents one extremely frequent word from dominating the entire cloud.
+// CalculateFontSize maps word frequency to a logarithmic font size range.
+// Counts at or below zero, or a non-positive maxCount, return minFontSize.
 func CalculateFontSize(count int, maxCount, maxFontSize, minFontSize float64) float64 {
-	if maxCount == 0 {
+	if maxCount <= 0 || count <= 0 {
 		return minFontSize
 	}
-	normalized := math.Log(1+float64(count)) / math.Log(1+maxCount)
+
+	clampedCount := math.Min(float64(count), maxCount)
+	// Log scaling compresses high-frequency words so one word does not dominate.
+	normalized := math.Log1p(clampedCount) / math.Log1p(maxCount)
 	return minFontSize + (maxFontSize-minFontSize)*normalized
 }
