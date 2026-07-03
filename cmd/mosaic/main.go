@@ -12,7 +12,7 @@ import (
 	"github.com/disintegration/imaging"
 	"github.com/santiagoa58/image-play/internal/effects/textmosaic"
 	"github.com/santiagoa58/image-play/internal/effects/wordcloud"
-	"github.com/santiagoa58/image-play/internal/textutils"
+	"github.com/santiagoa58/image-play/internal/textutil"
 )
 
 const (
@@ -61,7 +61,7 @@ func run() error {
 	// if err != nil {
 	// 	return fmt.Errorf("mosaic run: %w", err)
 	// }
-	err := wordcloud.GenWordCloud(*inputPath, *outputPath, *textFile)
+	err := wordcloud.GenWordCloud(*inputPath, *outputPath, *textFile, fontPath)
 	if err != nil {
 		return fmt.Errorf("wordcloud run: %w", err)
 	}
@@ -82,7 +82,7 @@ func mosaicRun(in, out, textFile string) error {
 		return fmt.Errorf("open input image %q: %w", in, err)
 	}
 
-	finalOutputPath, err := textutils.ResolveOutputPath(in, out, "textmosaic")
+	finalOutputPath, err := textutil.ResolveOutputPath(in, out, "textmosaic")
 	if err != nil {
 		return err
 	}

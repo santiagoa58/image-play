@@ -1,4 +1,4 @@
-package textutils
+package textutil
 
 import (
 	"bufio"
