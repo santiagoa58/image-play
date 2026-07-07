@@ -7,85 +7,75 @@ import (
 	"gocv.io/x/gocv"
 )
 
-// Mask represents a prepared binary shape mask along with its
-// Euclidean distance transform. It uses 1D slices for memory efficiency.
+// Mask holds a prepared binary shape and its distance transform.
+// Binary and Distance are stored as 2D slices for ergonomic access.
 type Mask struct {
-	// Binary indicates whether each pixel is inside the shape.
-	// true = inside (allowed), false = outside.
-	Binary []bool
-	// Distance stores the Euclidean distance from each pixel to the nearest edge.
-	// Higher values are farther from the boundary (better locations for large words).
-	Distance         []float32
+	Binary           [][]bool    // true = inside the shape
+	Distance         [][]float32 // Euclidean distance to nearest boundary
 	Width            int
 	Height           int
-	ThresholdedImage *gocv.Mat
 }
 
-// At reports whether the pixel at (x, y) is inside the allowed shape.
+// At returns whether the pixel at (x, y) is inside the shape.
 func (m *Mask) At(x, y int) bool {
 	if x < 0 || y < 0 || x >= m.Width || y >= m.Height {
 		return false
 	}
-	// use standard row-major ordering for 1D indexing
-	point := y*m.Width + x
-	return m.Binary[point]
+	return m.Binary[y][x]
 }
 
-// DistanceAt returns the Euclidean distance value at (x, y).
-// Higher values mean the pixel is farther from the edge of the shape.
+// DistanceAt returns the distance value at (x, y).
+// Higher values = farther from the boundary.
 func (m *Mask) DistanceAt(x, y int) float32 {
 	if x < 0 || y < 0 || x >= m.Width || y >= m.Height {
 		return 0
 	}
-	point := y*m.Width + x
-	return m.Distance[point]
+	return m.Distance[y][x]
 }
 
-func (m *Mask) IMWrite(out string) error {
-	ok := gocv.IMWrite(out, *m.ThresholdedImage)
-	if !ok {
-		return fmt.Errorf("failed to write thresholded image to %q", out)
+// IMWrite writes the img to disk as a PNG file.
+func  IMWrite(path string, img *gocv.Mat) error {
+	if img == nil {
+		return fmt.Errorf("no thresholded image available")
+	}
+	if ok := gocv.IMWrite(path, *img); !ok {
+		return fmt.Errorf("failed to write image to %s", path)
 	}
 	return nil
 }
 
-// Close closes the underlying gocv.Mat objects
-func (m *Mask) Close() error {
-	defer m.ThresholdedImage.Close()
-	return nil
-}
-
-// PrepareMask loads an image, converts it to a clean binary mask,
+// PrepareMask loads an image, creates a clean binary mask using Otsu,
 // applies morphological cleaning, computes the distance transform,
-// and returns a Mask.
+// and returns a Mask with 2D slices.
 func PrepareMask(path string) (*Mask, error) {
-	// Load the image from file
 	img, err := ReadImage(path)
 	if err != nil {
 		return nil, err
 	}
 	defer img.Close()
 
-	// Load and threshold the image to create a binary mask
-	// will be closed as part of the Close func
 	thImg := BinaryThreshold(*img)
+	defer thImg.Close()
 
-	// Apply morphological cleaning
-	if err := CleanMask(thImg); err != nil {
+	if err := cleanMask(thImg); err != nil {
 		return nil, err
 	}
 
-	// Compute distance transform
-	dist, err := ComputeDistanceTransform(*thImg)
+	dist, err := computeDistanceTransform(*thImg)
 	if err != nil {
 		return nil, err
 	}
 	defer dist.Close()
 
-	return createMask(thImg, dist)
+	mask, err := createMask(thImg, dist)
+	if err != nil {
+		return nil, err
+	}
+
+	return mask, nil
 }
 
-// ReadImage loads the image from disk as grayscale.
+// ReadImage loads an image as grayscale.
 func ReadImage(path string) (*gocv.Mat, error) {
 	img := gocv.IMRead(path, gocv.IMReadGrayScale)
 	if img.Empty() {
@@ -94,69 +84,72 @@ func ReadImage(path string) (*gocv.Mat, error) {
 	return &img, nil
 }
 
-// BinaryThreshold converts a grayscale image to a binary mask using Otsu's method.
+// BinaryThreshold applies Otsu's method to create a binary mask.
 func BinaryThreshold(img gocv.Mat) *gocv.Mat {
 	th := gocv.NewMat()
 	gocv.Threshold(img, &th, 0, 255, gocv.ThresholdBinary|gocv.ThresholdOtsu)
 	return &th
 }
 
-// CleanMask applies morphological opening followed by closing on the binary mask
-// to remove small noise specks and fill small holes.
-func CleanMask(th *gocv.Mat) error {
+// cleanMask removes noise and fills small holes using morphological operations.
+func cleanMask(th *gocv.Mat) error {
 	kernel := gocv.GetStructuringElement(gocv.MorphRect, image.Point{3, 3})
 	defer kernel.Close()
-	// remove small white specks
+
 	if err := gocv.MorphologyEx(*th, th, gocv.MorphOpen, kernel); err != nil {
 		return err
 	}
-	// fill small black holes inside shape
 	if err := gocv.MorphologyEx(*th, th, gocv.MorphClose, kernel); err != nil {
 		return err
 	}
 	return nil
 }
 
-// ComputeDistanceTransform computes the Euclidean distance transform of the binary mask.
-func ComputeDistanceTransform(th gocv.Mat) (*gocv.Mat, error) {
+// computeDistanceTransform runs the Euclidean distance transform.
+func computeDistanceTransform(th gocv.Mat) (*gocv.Mat, error) {
 	dist := gocv.NewMat()
 	labels := gocv.NewMat()
 	defer labels.Close()
 	if err := gocv.DistanceTransform(th, &dist, &labels, gocv.DistL2, gocv.DistanceMaskPrecise, gocv.DistanceLabelPixel); err != nil {
+		dist.Close()
 		return nil, err
 	}
 	return &dist, nil
 }
 
-// createMask
+// createMask converts gocv.Mat data into 2D Go slices.
 func createMask(binaryMat, distMat *gocv.Mat) (*Mask, error) {
 	width := binaryMat.Cols()
 	height := binaryMat.Rows()
-	total := width * height
 
-	binary := make([]bool, total)
-	distance := make([]float32, total)
+	binary := make([][]bool, height)
+	distance := make([][]float32, height)
 
-	imgData, err := binaryMat.DataPtrUint8()
+	binaryData, err := binaryMat.DataPtrUint8()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get binary data pointer: %w", err)
+		return nil, fmt.Errorf("failed to get binary data: %w", err)
 	}
 
 	distData, err := distMat.DataPtrFloat32()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get distance data pointer: %w", err)
+		return nil, fmt.Errorf("failed to get distance data: %w", err)
 	}
-	// convert the 2D OpenCV Mats into 1D slices for efficiency
-	for i := range total {
-		binary[i] = imgData[i] > 128
-		distance[i] = distData[i]
+
+	for y := range height {
+		binary[y] = make([]bool, width)
+		distance[y] = make([]float32, width)
+
+		for x := range width {
+			idx := y*width + x
+			binary[y][x] = binaryData[idx] > 128
+			distance[y][x] = distData[idx]
+		}
 	}
 
 	return &Mask{
-		Binary:           binary,
-		Distance:         distance,
-		Width:            width,
-		Height:           height,
-		ThresholdedImage: binaryMat,
+		Binary:   binary,
+		Distance: distance,
+		Width:    width,
+		Height:   height,
 	}, nil
 }
