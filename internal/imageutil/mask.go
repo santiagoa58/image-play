@@ -10,10 +10,12 @@ import (
 // Mask holds a prepared binary shape and its distance transform.
 // Binary and Distance are stored as 2D slices for ergonomic access.
 type Mask struct {
-	Binary           [][]bool    // true = inside the shape
-	Distance         [][]float32 // Euclidean distance to nearest boundary
-	Width            int
-	Height           int
+	Binary    [][]bool    // true = inside the shape
+	Distance  [][]float32 // Euclidean distance to nearest boundary
+	Width     int
+	Height    int
+	binaryMat *gocv.Mat
+	distMat   *gocv.Mat
 }
 
 // At returns whether the pixel at (x, y) is inside the shape.
@@ -33,8 +35,13 @@ func (m *Mask) DistanceAt(x, y int) float32 {
 	return m.Distance[y][x]
 }
 
+func (m *Mask) Close() {
+	defer m.binaryMat.Close()
+	defer m.distMat.Close()
+}
+
 // IMWrite writes the img to disk as a PNG file.
-func  IMWrite(path string, img *gocv.Mat) error {
+func IMWrite(path string, img *gocv.Mat) error {
 	if img == nil {
 		return fmt.Errorf("no thresholded image available")
 	}
@@ -48,35 +55,35 @@ func  IMWrite(path string, img *gocv.Mat) error {
 // applies morphological cleaning, computes the distance transform,
 // and returns a Mask with 2D slices.
 func PrepareMask(path string) (*Mask, error) {
-	img, err := ReadImage(path)
+	img, err := readImage(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read image from %q: %w", path, err)
 	}
 	defer img.Close()
 
-	thImg := BinaryThreshold(*img)
+	thImg := binaryThreshold(*img)
 	defer thImg.Close()
 
 	if err := cleanMask(thImg); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("clean mask: %w", err)
 	}
 
-	dist, err := computeDistanceTransform(*thImg)
+	dist, err := ComputeDistanceTransform(*thImg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("compute distance transform: %w", err)
 	}
 	defer dist.Close()
 
 	mask, err := createMask(thImg, dist)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("create mask: %w", err)
 	}
 
 	return mask, nil
 }
 
-// ReadImage loads an image as grayscale.
-func ReadImage(path string) (*gocv.Mat, error) {
+// readImage loads an image as grayscale.
+func readImage(path string) (*gocv.Mat, error) {
 	img := gocv.IMRead(path, gocv.IMReadGrayScale)
 	if img.Empty() {
 		return nil, fmt.Errorf("failed to read image: %s", path)
@@ -85,7 +92,7 @@ func ReadImage(path string) (*gocv.Mat, error) {
 }
 
 // BinaryThreshold applies Otsu's method to create a binary mask.
-func BinaryThreshold(img gocv.Mat) *gocv.Mat {
+func binaryThreshold(img gocv.Mat) *gocv.Mat {
 	th := gocv.NewMat()
 	gocv.Threshold(img, &th, 0, 255, gocv.ThresholdBinary|gocv.ThresholdOtsu)
 	return &th
@@ -103,18 +110,6 @@ func cleanMask(th *gocv.Mat) error {
 		return err
 	}
 	return nil
-}
-
-// computeDistanceTransform runs the Euclidean distance transform.
-func computeDistanceTransform(th gocv.Mat) (*gocv.Mat, error) {
-	dist := gocv.NewMat()
-	labels := gocv.NewMat()
-	defer labels.Close()
-	if err := gocv.DistanceTransform(th, &dist, &labels, gocv.DistL2, gocv.DistanceMaskPrecise, gocv.DistanceLabelPixel); err != nil {
-		dist.Close()
-		return nil, err
-	}
-	return &dist, nil
 }
 
 // createMask converts gocv.Mat data into 2D Go slices.
@@ -147,9 +142,45 @@ func createMask(binaryMat, distMat *gocv.Mat) (*Mask, error) {
 	}
 
 	return &Mask{
-		Binary:   binary,
-		Distance: distance,
-		Width:    width,
-		Height:   height,
+		Binary:    binary,
+		Distance:  distance,
+		Width:     width,
+		Height:    height,
+		binaryMat: binaryMat,
+		distMat:   distMat,
 	}, nil
+}
+
+// getValidationMask creates two masks used for fast validation during placement.
+//
+// safeZone: A shrunk version of the binary mask. Any rectangle that fits
+//
+//	completely inside this mask is guaranteed to have enough
+//	breathing room from the actual shape boundary.
+//
+// occupancy: Starts empty. We mark areas as occupied when we place words.
+//
+//	This lets us quickly check if a candidate position overlaps
+//	any already placed word.
+func GetValidationMask(mask Mask, padding int) (*gocv.Mat, *gocv.Mat, error) {
+	safeZone := gocv.NewMat()
+
+	// Create a kernel size based on padding.
+	// A kernel of size (padding*2 + 1) roughly erodes by `padding` pixels.
+	kSize := max(padding*2+1, 3)
+	kernel := gocv.GetStructuringElement(gocv.MorphRect, image.Point{kSize, kSize})
+	defer kernel.Close()
+
+	if err := gocv.Erode(*mask.binaryMat, &safeZone, kernel); err != nil {
+		safeZone.Close()
+		return nil, nil, fmt.Errorf("failed to create safe zone: %w", err)
+	}
+
+	occupancy := gocv.NewMatWithSize(
+		mask.binaryMat.Rows(),
+		mask.binaryMat.Cols(),
+		gocv.MatTypeCV8UC1,
+	)
+
+	return &safeZone, &occupancy, nil
 }

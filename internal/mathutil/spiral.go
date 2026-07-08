@@ -1,6 +1,9 @@
 package mathutil
 
-import "math"
+import (
+	"image"
+	"math"
+)
 
 // ShapeAwareStep performs one local step of a shape-aware Archimedean spiral.
 // It blends the spiral tangent with the supplied distance-field gradient.
@@ -48,4 +51,14 @@ func ShapeAwareStep(x, y, angle, radiusGrowth, angleSpeed, gradientWeight float6
 	newAngle = t + angleSpeed*0.8
 
 	return newX, newY, newAngle
+}
+
+// generateSpiralPosition returns a candidate center point along an Archimedean spiral.
+func GenerateSpiralPosition(center image.Point, attempt int) (x, y float64) {
+	theta := float64(attempt) * 0.35
+	r := 3.0 * float64(attempt) * 0.08
+
+	x = float64(center.X) + r*math.Cos(theta)
+	y = float64(center.Y) + r*math.Sin(theta)
+	return x, y
 }

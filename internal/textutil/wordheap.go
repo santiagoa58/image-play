@@ -58,3 +58,10 @@ func (h WordHeap) String() string {
 
 	return b.String()
 }
+
+func (h WordHeap) Top() WordCount {
+	if len(h) == 0 {
+		return WordCount{}
+	}
+	return h[0]
+}
