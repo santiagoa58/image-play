@@ -30,7 +30,12 @@ func GenWordCloud(inpath, outpath, textpath, fontpath string) error {
 		return fmt.Errorf("prepare mask: %w", err)
 	}
 	defer mask.Close()
-
+	maskOut, err := textutil.ResolveOutputPath(inpath, outpath, "mask")
+	if err != nil {
+		return fmt.Errorf("resolve output path: %w", err)
+	}
+	// write out the mask
+	imageutil.IMWrite(maskOut, mask.BinaryMat)
 	// 3. Count words from text
 	logger.Info("counting words", "path", textpath)
 	wordHeap, err := textutil.CountWords(textpath)
@@ -39,7 +44,10 @@ func GenWordCloud(inpath, outpath, textpath, fontpath string) error {
 	}
 
 	// 4. Convert counts to sized words (sorted largest → smallest)
-	words := textutil.WordsFromCounts(wordHeap, minFontSize, maxFontSize)
+	words, err := textutil.WordsWithMeasurements(wordHeap, minFontSize, maxFontSize, fontpath)
+	if err != nil {
+		return err
+	}
 	logger.Info("prepared words", "count", len(words))
 
 	// 5. Create placement context (owns safeZone + occupancy)
@@ -54,9 +62,9 @@ func GenWordCloud(inpath, outpath, textpath, fontpath string) error {
 	logger.Info("placing words")
 	var placed []PlacedWord
 	for _, w := range words {
-		if p, ok := placeCtx.TryPlace(w); ok {
+		p, ok := placeCtx.TryPlace(w)
+		if ok {
 			placed = append(placed, p)
-			logger.Debug("placed word", "word", w.Text, "size", p.Size)
 		}
 	}
 	logger.Info("finished placement", "placed", len(placed), "skipped", len(words)-len(placed))
@@ -68,12 +76,12 @@ func GenWordCloud(inpath, outpath, textpath, fontpath string) error {
 	dc.Clear()
 
 	for _, p := range placed {
-		if err := dc.LoadFontFace(fontpath, p.Size); err != nil {
+		if err := dc.LoadFontFace(fontpath, p.Word.FontSize); err != nil {
 			logger.Warn("failed to load font", "word", p.Word, "error", err)
 			continue
 		}
 		dc.SetRGB(0, 0, 0) // black text
-		dc.DrawStringAnchored(p.Word, p.X, p.Y, 0.5, 0.5)
+		dc.DrawStringAnchored(p.Word.Text, p.X, p.Y, 0.5, 0.5)
 	}
 
 	if err := dc.SavePNG(outputPath); err != nil {

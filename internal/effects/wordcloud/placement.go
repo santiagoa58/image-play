@@ -11,9 +11,8 @@ import (
 )
 
 type PlacedWord struct {
-	Word string
+	Word textutil.Word
 	X, Y float64 // center position
-	Size float64 // font size in points
 }
 
 // PlacementContext holds everything needed during placement.
@@ -23,7 +22,6 @@ type PlacementContext struct {
 	occupancy *gocv.Mat
 	centers   []image.Point
 	FontPath  string
-	Padding   float64
 }
 
 // Close releases the gocv resources held by the context.
@@ -39,17 +37,11 @@ func (ctx *PlacementContext) Close() {
 // tryPlaceWord attempts to place a single word using spirals from multiple centers.
 // It returns the placed word and whether placement was successful.
 func (ctx *PlacementContext) TryPlace(word textutil.Word) (PlacedWord, bool) {
-
-	textW, textH, err := textutil.MeasureWord(word.Text, ctx.FontPath, word.Size)
-	if err != nil {
-		return PlacedWord{}, false
-	}
-
-	boxW := textW + ctx.Padding*2
-	boxH := textH + ctx.Padding*2
+	boxW := word.Width + word.Padding()
+	boxH := word.Height + word.Padding()
 
 	for _, center := range ctx.centers {
-		for attempt := range 5000 {
+		for attempt := range 1000 {
 			cx, cy := mathutil.GenerateSpiralPosition(center, attempt)
 			rect := mathutil.CenteredRect(cx, cy, boxW, boxH)
 
@@ -79,10 +71,9 @@ func (ctx *PlacementContext) TryPlace(word textutil.Word) (PlacedWord, bool) {
 			occROI2.Close()
 
 			return PlacedWord{
-				Word: word.Text,
+				Word: word,
 				X:    cx,
 				Y:    cy,
-				Size: word.Size,
 			}, true
 		}
 	}
@@ -92,8 +83,7 @@ func (ctx *PlacementContext) TryPlace(word textutil.Word) (PlacedWord, bool) {
 }
 
 func NewPlacementContext(mask *imageutil.Mask, fontpath string) (PlacementContext, error) {
-	const defaultPadding = 5
-	safe, occ, err := imageutil.GetValidationMask(*mask, defaultPadding)
+	safe, occ, err := imageutil.GetValidationMask(mask)
 	if err != nil {
 		return PlacementContext{}, fmt.Errorf("failed to prepare masks for placement: %w", err)
 	}
@@ -102,7 +92,6 @@ func NewPlacementContext(mask *imageutil.Mask, fontpath string) (PlacementContex
 		safeZone:  safe,
 		occupancy: occ,
 		centers:   centers,
-		Padding:   defaultPadding,
 		FontPath:  fontpath,
 	}, nil
 }
