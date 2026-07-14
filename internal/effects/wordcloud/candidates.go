@@ -15,11 +15,8 @@ type Center struct {
 }
 
 func FindCenters(m *imageutil.Mask, cfg Config) ([]Center, error) {
-	if m == nil {
-		return nil, errors.New("mask cannot be nil")
-	}
-	if m.DistMat == nil {
-		return nil, errors.New("mask distance matrix cannot be nil")
+	if err := validate(m, cfg); err != nil {
+		return nil, err
 	}
 	centers := []Center{}
 	distCopy := m.DistMat.Clone()
@@ -27,7 +24,7 @@ func FindCenters(m *imageutil.Mask, cfg Config) ([]Center, error) {
 	radius := cfg.CenterSuppressionRadius
 	if radius == 0 {
 		// Automatically determine how far apart centers should be.
-		radius = max(8, min(m.Width, m.Height)/40)
+		radius = max(8, min(m.DistMat.Cols(), m.DistMat.Rows())/40)
 	}
 
 	_, globalMax, _, _ := gocv.MinMaxLoc(*m.DistMat)
@@ -54,4 +51,23 @@ func FindCenters(m *imageutil.Mask, cfg Config) ([]Center, error) {
 	}
 
 	return centers, nil
+}
+
+func validate(m *imageutil.Mask, c Config) error {
+	if m == nil {
+		return errors.New("mask cannot be nil")
+	}
+	if m.DistMat == nil {
+		return errors.New("mask distance matrix cannot be nil")
+	}
+	if m.DistMat.Empty() {
+		return errors.New("mask distance matrix cannot be empty")
+	}
+	if c.MinCenterDepthRatio <= 0 || c.MinCenterDepthRatio > 1 {
+		return errors.New("center depth ratio must be in (0, 1]")
+	}
+	if c.CenterSuppressionRadius < 0 {
+		return errors.New("center suppression radius cannot be negative")
+	}
+	return nil
 }
