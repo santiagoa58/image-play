@@ -15,17 +15,28 @@ type Word struct {
 }
 
 func (w *Word) Padding() float64 {
-	return min(w.FontSize*0.25, 5)
+	return 0
 }
 
-func WordsWithMeasurements(h WordHeap, minSize, maxSize float64, fontpath string) ([]Word, error) {
+func WordsWithMeasurements(h WordHeap, minSize, maxSize float64, fontpath string, limit int) ([]Word, error) {
 	if h.Len() == 0 {
 		return nil, nil
 	}
-	words := make([]Word, h.Len())
-	dc := gg.NewContext(1, 1)                  // dummy context is enough for measuring
-	maxCount := float64(max(h.Top().Count, 1)) // Avoid division by zero
-	for i, w := range h.ToSortedSlice() {
+	if limit < 0 {
+		return nil, fmt.Errorf("limit must be greater than 0 ")
+	}
+	if limit > h.Len() {
+		limit = h.Len()
+	}
+
+	// dummy context is enough for measuring
+	dc := gg.NewContext(1, 1)
+	// Avoid division by zero
+	maxCount := float64(max(h.Top().Count, 1))
+	// Limits the number of words to measure
+	sortedWords := h.ToSortedSlice()[:limit]
+	words := make([]Word, len(sortedWords))
+	for i, w := range sortedWords {
 		countPercent := float64(w.Count) / maxCount
 		size := minSize + (maxSize-minSize)*countPercent
 		width, height, err := measureWord(dc, w.Word, fontpath, size)

@@ -20,7 +20,7 @@ type PlacedWord struct {
 type PlacementContext struct {
 	safeZone  *gocv.Mat
 	occupancy *gocv.Mat
-	centers   []image.Point
+	centers   []Center
 	FontPath  string
 }
 
@@ -36,13 +36,18 @@ func (ctx *PlacementContext) Close() {
 
 // tryPlaceWord attempts to place a single word using spirals from multiple centers.
 // It returns the placed word and whether placement was successful.
-func (ctx *PlacementContext) TryPlace(word textutil.Word) (PlacedWord, bool) {
+func (ctx *PlacementContext) TryPlace(word textutil.Word, maxAttempts int) (PlacedWord, bool) {
+
+	if len(ctx.centers) == 0 {
+		return PlacedWord{}, false
+	}
+
 	boxW := word.Width + word.Padding()
 	boxH := word.Height + word.Padding()
 
 	for _, center := range ctx.centers {
-		for attempt := range 1000 {
-			cx, cy := mathutil.GenerateSpiralPosition(center, attempt)
+		for attempt := range maxAttempts {
+			cx, cy := mathutil.GenerateSpiralPosition(center.Point, attempt)
 			rect := mathutil.CenteredRect(cx, cy, boxW, boxH)
 
 			if !rect.In(image.Rect(0, 0, ctx.safeZone.Cols(), ctx.safeZone.Rows())) {
@@ -82,16 +87,21 @@ func (ctx *PlacementContext) TryPlace(word textutil.Word) (PlacedWord, bool) {
 
 }
 
-func NewPlacementContext(mask *imageutil.Mask, fontpath string) (PlacementContext, error) {
+func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, error) {
 	safe, occ, err := imageutil.GetValidationMask(mask)
 	if err != nil {
-		return PlacementContext{}, fmt.Errorf("failed to prepare masks for placement: %w", err)
+		return nil, fmt.Errorf("failed to prepare masks for placement: %w", err)
 	}
-	centers := imageutil.FindCenters(*mask)
-	return PlacementContext{
+	centers, err := FindCenters(mask, cfg)
+	if err != nil {
+		safe.Close()
+		occ.Close()
+		return nil, fmt.Errorf("find placement centers: %w", err)
+	}
+	return &PlacementContext{
 		safeZone:  safe,
 		occupancy: occ,
 		centers:   centers,
-		FontPath:  fontpath,
+		FontPath:  cfg.FontPath,
 	}, nil
 }

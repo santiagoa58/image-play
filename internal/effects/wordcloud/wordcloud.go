@@ -9,42 +9,41 @@ import (
 	"github.com/santiagoa58/image-play/internal/textutil"
 )
 
-const (
-	minFontSize = 8
-	maxFontSize = 72
-)
+func Generate(cfg Config) error {
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("validate config: %w", err)
+	}
 
-func GenWordCloud(inpath, outpath, textpath, fontpath string) error {
 	logger := slog.Default()
 
 	// 1. Resolve output path
-	outputPath, err := textutil.ResolveOutputPath(inpath, outpath, "wordcloud")
+	outputPath, err := textutil.ResolveOutputPath(cfg.InputPath, cfg.OutputPath, "wordcloud")
 	if err != nil {
 		return fmt.Errorf("resolve output path: %w", err)
 	}
 
 	// 2. Prepare mask (binary + distance)
-	logger.Info("preparing mask", "path", inpath)
-	mask, err := imageutil.PrepareMask(inpath)
+	logger.Info("preparing mask", "path", cfg.InputPath)
+	mask, err := imageutil.PrepareMask(cfg.InputPath, cfg.MaskSource, cfg.AlphaThreshold)
 	if err != nil {
 		return fmt.Errorf("prepare mask: %w", err)
 	}
 	defer mask.Close()
-	maskOut, err := textutil.ResolveOutputPath(inpath, outpath, "mask")
+	maskOut, err := textutil.ResolveOutputPath(cfg.InputPath, cfg.OutputPath, "mask")
 	if err != nil {
 		return fmt.Errorf("resolve output path: %w", err)
 	}
 	// write out the mask
 	imageutil.IMWrite(maskOut, mask.BinaryMat)
 	// 3. Count words from text
-	logger.Info("counting words", "path", textpath)
-	wordHeap, err := textutil.CountWords(textpath)
+	logger.Info("counting words", "path", cfg.TextPath)
+	wordHeap, err := textutil.CountWords(cfg.TextPath)
 	if err != nil {
 		return fmt.Errorf("count words: %w", err)
 	}
 
 	// 4. Convert counts to sized words (sorted largest → smallest)
-	words, err := textutil.WordsWithMeasurements(wordHeap, minFontSize, maxFontSize, fontpath)
+	words, err := textutil.WordsWithMeasurements(wordHeap, cfg.MinFontSize, cfg.MaxFontSize, cfg.FontPath, cfg.WordLimit)
 	if err != nil {
 		return err
 	}
@@ -52,7 +51,7 @@ func GenWordCloud(inpath, outpath, textpath, fontpath string) error {
 
 	// 5. Create placement context (owns safeZone + occupancy)
 	logger.Info("creating placement context")
-	placeCtx, err := NewPlacementContext(mask, fontpath)
+	placeCtx, err := NewPlacementContext(mask, cfg)
 	if err != nil {
 		return fmt.Errorf("create placement context: %w", err)
 	}
@@ -62,13 +61,11 @@ func GenWordCloud(inpath, outpath, textpath, fontpath string) error {
 	logger.Info("placing words")
 	var placed []PlacedWord
 	for _, w := range words {
-		p, ok := placeCtx.TryPlace(w)
+		p, ok := placeCtx.TryPlace(w, cfg.MaxAttemptsPerCenter)
 		if ok {
 			placed = append(placed, p)
 		}
 	}
-	logger.Info("finished placement", "placed", len(placed), "skipped", len(words)-len(placed))
-
 	// 7. Render final image
 	logger.Info("rendering word cloud", "output", outputPath)
 	dc := gg.NewContext(mask.Width, mask.Height)
@@ -76,7 +73,7 @@ func GenWordCloud(inpath, outpath, textpath, fontpath string) error {
 	dc.Clear()
 
 	for _, p := range placed {
-		if err := dc.LoadFontFace(fontpath, p.Word.FontSize); err != nil {
+		if err := dc.LoadFontFace(cfg.FontPath, p.Word.FontSize); err != nil {
 			logger.Warn("failed to load font", "word", p.Word, "error", err)
 			continue
 		}

@@ -3,13 +3,8 @@ package wordcloud
 import (
 	"errors"
 	"strings"
-)
 
-type MaskSource int
-
-const (
-	MaskSourceLuminance MaskSource = iota
-	MaskSourceAlpha
+	"github.com/santiagoa58/image-play/internal/imageutil"
 )
 
 type Config struct {
@@ -23,11 +18,11 @@ type Config struct {
 	WordLimit   int
 
 	MaxAttemptsPerCenter    int
-	CenterDepthRatio        float64
+	MinCenterDepthRatio     float64
 	CenterSuppressionRadius int
 	SafeZoneErodeSize       int
 
-	MaskSource     MaskSource
+	MaskSource     imageutil.MaskSource
 	AlphaThreshold uint8
 	WordPadding    int
 	Angles         []int // degrees; initially 0 and 90
@@ -55,7 +50,7 @@ func NewConfig(options ...Option) Config {
 		MaxFontSize:             48,
 		WordLimit:               1000,
 		MaxAttemptsPerCenter:    500,
-		CenterDepthRatio:        0.01,
+		MinCenterDepthRatio:     0.01,
 		CenterSuppressionRadius: 0, // automatic
 		SafeZoneErodeSize:       3,
 		WordPadding:             1,
@@ -89,7 +84,7 @@ func (cfg Config) Validate() error {
 		return errors.New("word limit must be positive")
 	case cfg.MaxAttemptsPerCenter <= 0:
 		return errors.New("attempt count must be positive")
-	case cfg.CenterDepthRatio <= 0 || cfg.CenterDepthRatio > 1:
+	case cfg.MinCenterDepthRatio <= 0 || cfg.MinCenterDepthRatio > 1:
 		return errors.New("center depth ratio must be in (0, 1]")
 	case cfg.CenterSuppressionRadius < 0:
 		return errors.New("suppression radius cannot be negative")
@@ -120,8 +115,8 @@ func WithMaxAttemptsPerCenter(attempts int) Option {
 	return func(cfg *Config) { cfg.MaxAttemptsPerCenter = attempts }
 }
 
-func WithCenterDepthRatio(ratio float64) Option {
-	return func(cfg *Config) { cfg.CenterDepthRatio = ratio }
+func WithMinCenterDepthRatio(ratio float64) Option {
+	return func(cfg *Config) { cfg.MinCenterDepthRatio = ratio }
 }
 
 func WithCenterSuppressionRadius(radius int) Option {

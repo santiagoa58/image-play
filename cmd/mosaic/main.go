@@ -22,11 +22,6 @@ const (
 	defaultOutputSuffix = "_mosaic"
 )
 
-const (
-	fontPath        = "./fonts/NotoSansMono-VariableFont_wdth,wght.ttf"
-	defaultTextFile = "./testdata/text/sample_text_message.txt"
-)
-
 func main() {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
@@ -37,8 +32,9 @@ func main() {
 func run() error {
 	var (
 		inputPath  = flag.String("in", "", "Path to input image (PNG, JPEG, WebP, etc.) [required]")
-		outputPath = flag.String("out", "", "Output path. Can be file or directory. Empty = input_mosaic.png")
-		textFile   = flag.String("text", defaultTextFile, "Path to the text file to use for the mosaic. If empty, uses default text file.")
+		outputPath = flag.String("out", "", "Output path. Can be file or directory. Empty = input_wordcloud.png")
+		textFile   = flag.String("text", "", "Path to text file [required]")
+		fontPath   = flag.String("font", "", "Path to a TTF or OTF font file [required]")
 	)
 
 	flag.Usage = func() {
@@ -52,23 +48,29 @@ func run() error {
 	logger := slog.Default()
 	logger.Info("mosaic starting", "version", appVersion)
 
-	if err := validateRequiredFlags(*inputPath); err != nil {
+	if err := validateRequiredFlags(*inputPath, *textFile, *fontPath); err != nil {
 		flag.Usage()
 		return err
 	}
 
-	// err := mosaicRun(*inputPath, *outputPath, *textFile)
+	// err := mosaicRun(*inputPath, *outputPath, *textFile, *fontPath)
 	// if err != nil {
 	// 	return fmt.Errorf("mosaic run: %w", err)
 	// }
-	err := wordcloud.GenWordCloud(*inputPath, *outputPath, *textFile, fontPath)
-	if err != nil {
+	wcConfig := wordcloud.NewConfig(
+		wordcloud.WithInputPath(*inputPath),
+		wordcloud.WithOutputPath(*outputPath),
+		wordcloud.WithTextPath(*textFile),
+		wordcloud.WithFontPath(*fontPath),
+	)
+
+	if err := wordcloud.Generate(wcConfig); err != nil {
 		return fmt.Errorf("wordcloud run: %w", err)
 	}
 	return nil
 }
 
-func mosaicRun(in, out, textFile string) error {
+func mosaicRun(in, out, textFile, fontPath string) error {
 	logger := slog.Default()
 	mosaicText, err := resolveText(textFile)
 	if err != nil {
@@ -121,11 +123,19 @@ func mosaicRun(in, out, textFile string) error {
 	return nil
 }
 
-func validateRequiredFlags(inputPath string) error {
-	if strings.TrimSpace(inputPath) == "" {
-		return errors.New("missing required flag: -in")
+func validateRequiredFlags(inputPath, textFile, fontPath string) error {
+	for _, flag := range []struct {
+		name  string
+		value string
+	}{
+		{"-in", inputPath},
+		{"-text", textFile},
+		{"-font", fontPath},
+	} {
+		if strings.TrimSpace(flag.value) == "" {
+			return fmt.Errorf("missing required flag: %s", flag.name)
+		}
 	}
-
 	return nil
 }
 

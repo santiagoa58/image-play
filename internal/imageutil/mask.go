@@ -1,21 +1,32 @@
 package imageutil
 
 import (
+	"errors"
 	"fmt"
 	"image"
 
 	"gocv.io/x/gocv"
 )
 
+type MaskSource int
+
+const (
+	MaskSourceLuminance MaskSource = iota
+	MaskSourceAlpha
+)
+
 // Mask holds a prepared binary shape and its distance transform.
 // Binary and Distance are stored as 2D slices for ergonomic access.
 type Mask struct {
-	Binary    [][]bool    // true = inside the shape
-	Distance  [][]float32 // Euclidean distance to nearest boundary
+	// permanent definition of where text may exist; true = inside shape.
+	Binary [][]bool
+	// Euclidean distance to nearest boundary
+	Distance  [][]float32
 	Width     int
 	Height    int
+	// permanent definition of where text may exist
 	BinaryMat *gocv.Mat
-	distMat   *gocv.Mat
+	DistMat   *gocv.Mat
 }
 
 // At returns whether the pixel at (x, y) is inside the shape.
@@ -40,9 +51,9 @@ func (m *Mask) Close() {
 		m.BinaryMat.Close()
 		m.BinaryMat = nil
 	}
-	if m.distMat != nil {
-		m.distMat.Close()
-		m.distMat = nil
+	if m.DistMat != nil {
+		m.DistMat.Close()
+		m.DistMat = nil
 	}
 }
 
@@ -60,14 +71,21 @@ func IMWrite(path string, img *gocv.Mat) error {
 // PrepareMask loads an image, creates a clean binary mask using Otsu,
 // applies morphological cleaning, computes the distance transform,
 // and returns a Mask with 2D slices.
-func PrepareMask(path string) (*Mask, error) {
-	img, err := readImage(path)
+func PrepareMask(path string, source MaskSource, alphaThreshold uint8) (*Mask, error) {
+	img, err := readImage(path, source == MaskSourceLuminance)
 	if err != nil {
 		return nil, fmt.Errorf("read image from %q: %w", path, err)
 	}
 	defer img.Close()
-
-	thImg := binaryThreshold(*img)
+	var thImg *gocv.Mat
+	if source == MaskSourceAlpha {
+		thImg, err = applyAlphaThreshold(*img, alphaThreshold)
+	} else {
+		thImg = applyBinaryThreshold(*img)
+	}
+	if err != nil {
+		return nil, err
+	}
 
 	if err := cleanMask(thImg); err != nil {
 		return nil, fmt.Errorf("clean mask: %w", err)
@@ -87,16 +105,36 @@ func PrepareMask(path string) (*Mask, error) {
 }
 
 // readImage loads an image as grayscale.
-func readImage(path string) (*gocv.Mat, error) {
-	img := gocv.IMRead(path, gocv.IMReadGrayScale)
+func readImage(path string, grayscale bool) (*gocv.Mat, error) {
+	flag := gocv.IMReadUnchanged
+	if grayscale {
+		flag = gocv.IMReadGrayScale
+	}
+	img := gocv.IMRead(path, flag)
 	if img.Empty() {
 		return nil, fmt.Errorf("failed to read image: %s", path)
 	}
 	return &img, nil
 }
 
+func applyAlphaThreshold(img gocv.Mat, threshold uint8) (*gocv.Mat, error) {
+	alpha := gocv.NewMat()
+	defer alpha.Close()
+
+	if img.Channels() != 4 {
+		return nil, errors.New("alpha mask requested but image has no alpha channel")
+	}
+	if err := gocv.ExtractChannel(img, &alpha, 3); err != nil {
+		return nil, err
+	}
+	binary := gocv.NewMat()
+	gocv.Threshold(alpha, &binary, float32(threshold), 255, gocv.ThresholdBinary)
+
+	return &binary, nil
+}
+
 // BinaryThreshold applies Otsu's method to create a binary mask.
-func binaryThreshold(img gocv.Mat) *gocv.Mat {
+func applyBinaryThreshold(img gocv.Mat) *gocv.Mat {
 	th := gocv.NewMat()
 	gocv.Threshold(img, &th, 0, 255, gocv.ThresholdBinaryInv|gocv.ThresholdOtsu)
 	return &th
@@ -151,19 +189,17 @@ func createMask(binaryMat, distMat *gocv.Mat) (*Mask, error) {
 		Width:     width,
 		Height:    height,
 		BinaryMat: binaryMat,
-		distMat:   distMat,
+		DistMat:   distMat,
 	}, nil
 }
 
 // getValidationMask creates two masks used for fast validation during placement.
 //
 // safeZone: A shrunk version of the binary mask. Any rectangle that fits
-//
 //	completely inside this mask is guaranteed to have enough
 //	breathing room from the actual shape boundary.
 //
 // occupancy: Starts empty. We mark areas as occupied when we place words.
-//
 //	This lets us quickly check if a candidate position overlaps
 //	any already placed word.
 func GetValidationMask(mask *Mask) (*gocv.Mat, *gocv.Mat, error) {
