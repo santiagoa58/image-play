@@ -91,7 +91,7 @@ func (ctx *PlacementContext) TryPlace(word textutil.Word) (PlacedWord, bool) {
 }
 
 func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, error) {
-	safe, occ, err := imageutil.GetValidationMask(mask)
+	safe, occ, err := newValidationMasks(mask, cfg.SafeZoneErodeSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare masks for placement: %w", err)
 	}
@@ -108,4 +108,44 @@ func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, e
 		maxAttempts: cfg.SpiralStepsPerCenter,
 		wordPadding: float64(cfg.WordPadding),
 	}, nil
+}
+
+// newValidationMasks creates the fixed safe zone and mutable occupancy map
+// used while placing words. The caller owns both returned matrices.
+func newValidationMasks(
+	mask *imageutil.Mask,
+	erodeSize int,
+) (*gocv.Mat, *gocv.Mat, error) {
+	if mask == nil || mask.BinaryMat == nil || mask.BinaryMat.Empty() {
+		return nil, nil, fmt.Errorf("binary placement mask is unavailable")
+	}
+	if erodeSize <= 0 || erodeSize%2 == 0 {
+		return nil, nil, fmt.Errorf(
+			"safe-zone erosion size must be positive and odd",
+		)
+	}
+
+	safeZone := gocv.NewMat()
+	kernel := gocv.GetStructuringElement(
+		gocv.MorphRect,
+		image.Point{X: erodeSize, Y: erodeSize},
+	)
+	defer kernel.Close()
+
+	if err := gocv.Erode(
+		*mask.BinaryMat,
+		&safeZone,
+		kernel,
+	); err != nil {
+		safeZone.Close()
+		return nil, nil, fmt.Errorf("create safe zone: %w", err)
+	}
+
+	occupancy := gocv.NewMatWithSize(
+		mask.BinaryMat.Rows(),
+		mask.BinaryMat.Cols(),
+		gocv.MatTypeCV8UC1,
+	)
+
+	return &safeZone, &occupancy, nil
 }

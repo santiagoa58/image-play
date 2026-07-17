@@ -336,39 +336,3 @@ func createMask(
 		DistMat:   distMat,
 	}, nil
 }
-
-// GetValidationMask returns masks used to validate word placement.
-//
-// safeZone is a slightly eroded placement mask that keeps words away from the
-// shape boundary. occupancy starts empty and tracks already placed words.
-//
-// The caller owns both returned matrices.
-func GetValidationMask(
-	mask *Mask,
-) (*gocv.Mat, *gocv.Mat, error) {
-	safeZone := gocv.NewMat()
-
-	// A 3×3 kernel erodes the boundary by approximately one pixel.
-	kernel := gocv.GetStructuringElement(
-		gocv.MorphRect,
-		image.Point{X: 3, Y: 3},
-	)
-	defer kernel.Close()
-
-	if err := gocv.Erode(
-		*mask.BinaryMat,
-		&safeZone,
-		kernel,
-	); err != nil {
-		safeZone.Close()
-		return nil, nil, fmt.Errorf("create safe zone: %w", err)
-	}
-
-	occupancy := gocv.NewMatWithSize(
-		mask.BinaryMat.Rows(),
-		mask.BinaryMat.Cols(),
-		gocv.MatTypeCV8UC1,
-	)
-
-	return &safeZone, &occupancy, nil
-}
