@@ -14,10 +14,6 @@ type Word struct {
 	Height   float64
 }
 
-func (w *Word) Padding() float64 {
-	return 0
-}
-
 func WordsWithMeasurements(h WordHeap, minSize, maxSize float64, fontpath string, limit int) ([]Word, error) {
 	if h.Len() == 0 {
 		return nil, nil

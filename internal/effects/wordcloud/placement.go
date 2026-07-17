@@ -3,6 +3,7 @@ package wordcloud
 import (
 	"fmt"
 	"image"
+	"image/color"
 
 	"github.com/santiagoa58/image-play/internal/imageutil"
 	"github.com/santiagoa58/image-play/internal/mathutil"
@@ -11,17 +12,19 @@ import (
 )
 
 type PlacedWord struct {
-	Word textutil.Word
-	X, Y float64 // center position
+	Word  textutil.Word
+	X, Y  float64 // center position
+	Color color.RGBA
 }
 
 // PlacementContext holds everything needed during placement.
 // This reduces parameter passing and makes testing easier.
 type PlacementContext struct {
-	safeZone  *gocv.Mat
-	occupancy *gocv.Mat
-	centers   []Center
-	FontPath  string
+	safeZone    *gocv.Mat
+	occupancy   *gocv.Mat
+	centers     []Center
+	maxAttempts int
+	wordPadding float64
 }
 
 // Close releases the gocv resources held by the context.
@@ -36,17 +39,17 @@ func (ctx *PlacementContext) Close() {
 
 // tryPlaceWord attempts to place a single word using spirals from multiple centers.
 // It returns the placed word and whether placement was successful.
-func (ctx *PlacementContext) TryPlace(word textutil.Word, maxAttempts int) (PlacedWord, bool) {
+func (ctx *PlacementContext) TryPlace(word textutil.Word) (PlacedWord, bool) {
 
 	if len(ctx.centers) == 0 {
 		return PlacedWord{}, false
 	}
 
-	boxW := word.Width + word.Padding()
-	boxH := word.Height + word.Padding()
+	boxW := word.Width + 2*ctx.wordPadding
+	boxH := word.Height + 2*ctx.wordPadding
 
-	for _, center := range ctx.centers {
-		for attempt := range maxAttempts {
+	for attempt := 0; attempt < ctx.maxAttempts; attempt++ {
+		for _, center := range ctx.centers {
 			cx, cy := mathutil.GenerateSpiralPosition(center.Point, attempt)
 			rect := mathutil.CenteredRect(cx, cy, boxW, boxH)
 
@@ -99,9 +102,10 @@ func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, e
 		return nil, fmt.Errorf("find placement centers: %w", err)
 	}
 	return &PlacementContext{
-		safeZone:  safe,
-		occupancy: occ,
-		centers:   centers,
-		FontPath:  cfg.FontPath,
+		safeZone:    safe,
+		occupancy:   occ,
+		centers:     centers,
+		maxAttempts: cfg.SpiralStepsPerCenter,
+		wordPadding: float64(cfg.WordPadding),
 	}, nil
 }

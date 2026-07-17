@@ -8,28 +8,23 @@ import (
 	"gocv.io/x/gocv"
 )
 
-type MaskSource int
-
-const (
-	MaskSourceLuminance MaskSource = iota
-	MaskSourceAlpha
-)
-
-// Mask holds a prepared binary shape and its distance transform.
-// Binary and Distance are stored as 2D slices for ergonomic access.
+// Mask contains a binary placement shape and its distance transform.
 type Mask struct {
-	// permanent definition of where text may exist; true = inside shape.
+	// Binary indicates where text may be placed.
 	Binary [][]bool
-	// Euclidean distance to nearest boundary
-	Distance  [][]float32
-	Width     int
-	Height    int
-	// permanent definition of where text may exist
+
+	// Distance stores each pixel's distance from the nearest shape boundary.
+	Distance [][]float32
+
+	Width  int
+	Height int
+
+	// BinaryMat and DistMat are retained for OpenCV operations.
 	BinaryMat *gocv.Mat
 	DistMat   *gocv.Mat
 }
 
-// At returns whether the pixel at (x, y) is inside the shape.
+// At reports whether (x, y) is inside the placement shape.
 func (m *Mask) At(x, y int) bool {
 	if x < 0 || y < 0 || x >= m.Width || y >= m.Height {
 		return false
@@ -37,8 +32,7 @@ func (m *Mask) At(x, y int) bool {
 	return m.Binary[y][x]
 }
 
-// DistanceAt returns the distance value at (x, y).
-// Higher values = farther from the boundary.
+// DistanceAt returns the distance from (x, y) to the nearest shape boundary.
 func (m *Mask) DistanceAt(x, y int) float32 {
 	if x < 0 || y < 0 || x >= m.Width || y >= m.Height {
 		return 0
@@ -46,6 +40,7 @@ func (m *Mask) DistanceAt(x, y int) float32 {
 	return m.Distance[y][x]
 }
 
+// Close releases the OpenCV matrices owned by the mask.
 func (m *Mask) Close() {
 	if m.BinaryMat != nil {
 		m.BinaryMat.Close()
@@ -57,105 +52,254 @@ func (m *Mask) Close() {
 	}
 }
 
-// IMWrite writes the img to disk as a PNG file.
+// IMWrite writes img to disk.
 func IMWrite(path string, img *gocv.Mat) error {
 	if img == nil {
-		return fmt.Errorf("no thresholded image available")
+		return errors.New("no image available")
 	}
 	if ok := gocv.IMWrite(path, *img); !ok {
-		return fmt.Errorf("failed to write image to %s", path)
+		return fmt.Errorf("failed to write image to %q", path)
 	}
 	return nil
 }
 
-// PrepareMask loads an image, creates a clean binary mask using Otsu,
-// applies morphological cleaning, computes the distance transform,
-// and returns a Mask with 2D slices.
-func PrepareMask(path string, source MaskSource, alphaThreshold uint8) (*Mask, error) {
-	img, err := readImage(path, source == MaskSourceLuminance)
+// PrepareMask builds the placement mask and distance transform for an image.
+// Dark visible pixels become placeable; transparent pixels are excluded.
+func PrepareMask(path string, alphaThreshold uint8) (*Mask, error) {
+	img, err := readImage(path)
 	if err != nil {
 		return nil, fmt.Errorf("read image from %q: %w", path, err)
 	}
 	defer img.Close()
-	var thImg *gocv.Mat
-	if source == MaskSourceAlpha {
-		thImg, err = applyAlphaThreshold(*img, alphaThreshold)
-	} else {
-		thImg = applyBinaryThreshold(*img)
-	}
+
+	binary, err := buildBinaryMask(*img, alphaThreshold)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("build binary mask: %w", err)
 	}
 
-	if err := cleanMask(thImg); err != nil {
-		return nil, fmt.Errorf("clean mask: %w", err)
-	}
-
-	dist, err := ComputeDistanceTransform(*thImg)
+	dist, err := ComputeDistanceTransform(*binary)
 	if err != nil {
+		binary.Close()
 		return nil, fmt.Errorf("compute distance transform: %w", err)
 	}
 
-	mask, err := createMask(thImg, dist)
+	mask, err := createMask(binary, dist)
 	if err != nil {
+		binary.Close()
+		dist.Close()
 		return nil, fmt.Errorf("create mask: %w", err)
 	}
 
 	return mask, nil
 }
 
-// readImage loads an image as grayscale.
-func readImage(path string, grayscale bool) (*gocv.Mat, error) {
-	flag := gocv.IMReadUnchanged
-	if grayscale {
-		flag = gocv.IMReadGrayScale
-	}
-	img := gocv.IMRead(path, flag)
+// readImage loads an image without discarding its alpha channel.
+func readImage(path string) (*gocv.Mat, error) {
+	img := gocv.IMRead(path, gocv.IMReadUnchanged)
 	if img.Empty() {
-		return nil, fmt.Errorf("failed to read image: %s", path)
+		return nil, fmt.Errorf("failed to read image from %q", path)
 	}
 	return &img, nil
 }
 
-func applyAlphaThreshold(img gocv.Mat, threshold uint8) (*gocv.Mat, error) {
+// buildBinaryMask returns a cleaned binary placement mask.
+// When alpha is present, invisible pixels are excluded.
+// The caller owns the returned matrix.
+func buildBinaryMask(
+	img gocv.Mat,
+	alphaThreshold uint8,
+) (*gocv.Mat, error) {
+	gray, err := grayscale(img)
+	if err != nil {
+		return nil, err
+	}
+	defer gray.Close()
+
+	thresholdInput := gray
+
+	var visibleMask *gocv.Mat
+	if img.Channels() == 4 {
+		visibleMask, err = buildAlphaVisibilityMask(img, alphaThreshold)
+		if err != nil {
+			return nil, err
+		}
+		defer visibleMask.Close()
+
+		visibleGray, err := visibleLuminance(*gray, *visibleMask)
+		if err != nil {
+			return nil, err
+		}
+		defer visibleGray.Close()
+
+		thresholdInput = visibleGray
+	}
+
+	binary := applyBinaryThreshold(*thresholdInput)
+
+	if err := cleanMask(binary); err != nil {
+		binary.Close()
+		return nil, fmt.Errorf("clean binary mask: %w", err)
+	}
+
+	if visibleMask == nil {
+		return binary, nil
+	}
+
+	final := gocv.NewMat()
+
+	// Cleaning can fill transparent holes, so enforce visibility again.
+	if err := gocv.BitwiseAnd(*binary, *visibleMask, &final); err != nil {
+		final.Close()
+		binary.Close()
+		return nil, fmt.Errorf(
+			"constrain binary mask to visible pixels: %w",
+			err,
+		)
+	}
+
+	binary.Close()
+	return &final, nil
+}
+
+// buildAlphaVisibilityMask converts alpha into a binary visibility mask.
+// Alpha values greater than threshold become 255; all others become 0.
+// The caller owns the returned matrix.
+func buildAlphaVisibilityMask(
+	img gocv.Mat,
+	threshold uint8,
+) (*gocv.Mat, error) {
+	if img.Channels() != 4 {
+		return nil, errors.New(
+			"alpha visibility mask requires a four-channel image",
+		)
+	}
+
 	alpha := gocv.NewMat()
 	defer alpha.Close()
 
-	if img.Channels() != 4 {
-		return nil, errors.New("alpha mask requested but image has no alpha channel")
-	}
 	if err := gocv.ExtractChannel(img, &alpha, 3); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("extract alpha channel: %w", err)
 	}
-	binary := gocv.NewMat()
-	gocv.Threshold(alpha, &binary, float32(threshold), 255, gocv.ThresholdBinary)
 
-	return &binary, nil
+	visible := gocv.NewMat()
+	gocv.Threshold(
+		alpha,
+		&visible,
+		float32(threshold),
+		255,
+		gocv.ThresholdBinary,
+	)
+
+	return &visible, nil
 }
 
-// BinaryThreshold applies Otsu's method to create a binary mask.
+// visibleLuminance returns a grayscale image with invisible pixels set to white.
+// This prevents hidden color data from affecting Otsu's threshold.
+// The caller owns the returned matrix.
+func visibleLuminance(
+	grayImg gocv.Mat,
+	visibleMask gocv.Mat,
+) (*gocv.Mat, error) {
+	result := gocv.NewMatWithSizeFromScalar(
+		gocv.NewScalar(255, 0, 0, 0),
+		grayImg.Rows(),
+		grayImg.Cols(),
+		gocv.MatTypeCV8UC1,
+	)
+
+	if err := grayImg.CopyToWithMask(&result, visibleMask); err != nil {
+		result.Close()
+		return nil, fmt.Errorf(
+			"copy visible pixels into grayscale image: %w",
+			err,
+		)
+	}
+
+	return &result, nil
+}
+
+// grayscale returns a single-channel luminance matrix.
+// The caller owns the returned matrix.
+func grayscale(img gocv.Mat) (*gocv.Mat, error) {
+	channels := img.Channels()
+
+	if channels == 1 {
+		gray := img.Clone()
+		return &gray, nil
+	}
+
+	gray := gocv.NewMat()
+
+	var code gocv.ColorConversionCode
+	switch channels {
+	case 3:
+		code = gocv.ColorBGRToGray
+	case 4:
+		code = gocv.ColorBGRAToGray
+	default:
+		return nil, fmt.Errorf(
+			"unsupported image channel count: %d",
+			channels,
+		)
+	}
+
+	if err := gocv.CvtColor(img, &gray, code); err != nil {
+		gray.Close()
+		return nil, fmt.Errorf("convert image to grayscale: %w", err)
+	}
+
+	return &gray, nil
+}
+
+// applyBinaryThreshold uses inverse Otsu thresholding to select dark pixels.
+// The caller owns the returned matrix.
 func applyBinaryThreshold(img gocv.Mat) *gocv.Mat {
-	th := gocv.NewMat()
-	gocv.Threshold(img, &th, 0, 255, gocv.ThresholdBinaryInv|gocv.ThresholdOtsu)
-	return &th
+	binary := gocv.NewMat()
+	gocv.Threshold(
+		img,
+		&binary,
+		0,
+		255,
+		gocv.ThresholdBinaryInv|gocv.ThresholdOtsu,
+	)
+	return &binary
 }
 
-// cleanMask removes noise and fills small holes using morphological operations.
-func cleanMask(th *gocv.Mat) error {
-	kernel := gocv.GetStructuringElement(gocv.MorphRect, image.Point{3, 3})
+// cleanMask removes small artifacts and fills small gaps.
+func cleanMask(binary *gocv.Mat) error {
+	kernel := gocv.GetStructuringElement(
+		gocv.MorphRect,
+		image.Point{X: 3, Y: 3},
+	)
 	defer kernel.Close()
 
-	if err := gocv.MorphologyEx(*th, th, gocv.MorphOpen, kernel); err != nil {
-		return err
+	if err := gocv.MorphologyEx(
+		*binary,
+		binary,
+		gocv.MorphOpen,
+		kernel,
+	); err != nil {
+		return fmt.Errorf("open binary mask: %w", err)
 	}
-	if err := gocv.MorphologyEx(*th, th, gocv.MorphClose, kernel); err != nil {
-		return err
+
+	if err := gocv.MorphologyEx(
+		*binary,
+		binary,
+		gocv.MorphClose,
+		kernel,
+	); err != nil {
+		return fmt.Errorf("close binary mask: %w", err)
 	}
+
 	return nil
 }
 
-// createMask converts gocv.Mat data into 2D Go slices.
-func createMask(binaryMat, distMat *gocv.Mat) (*Mask, error) {
+// createMask converts OpenCV matrices into the Mask representation.
+// Ownership of both matrices transfers to the returned Mask.
+func createMask(
+	binaryMat,
+	distMat *gocv.Mat,
+) (*Mask, error) {
 	width := binaryMat.Cols()
 	height := binaryMat.Rows()
 
@@ -164,12 +308,12 @@ func createMask(binaryMat, distMat *gocv.Mat) (*Mask, error) {
 
 	binaryData, err := binaryMat.DataPtrUint8()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get binary data: %w", err)
+		return nil, fmt.Errorf("read binary mask data: %w", err)
 	}
 
 	distData, err := distMat.DataPtrFloat32()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get distance data: %w", err)
+		return nil, fmt.Errorf("read distance transform data: %w", err)
 	}
 
 	for y := range height {
@@ -177,9 +321,9 @@ func createMask(binaryMat, distMat *gocv.Mat) (*Mask, error) {
 		distance[y] = make([]float32, width)
 
 		for x := range width {
-			idx := y*width + x
-			binary[y][x] = binaryData[idx] > 128
-			distance[y][x] = distData[idx]
+			index := y*width + x
+			binary[y][x] = binaryData[index] > 128
+			distance[y][x] = distData[index]
 		}
 	}
 
@@ -193,27 +337,31 @@ func createMask(binaryMat, distMat *gocv.Mat) (*Mask, error) {
 	}, nil
 }
 
-// getValidationMask creates two masks used for fast validation during placement.
+// GetValidationMask returns masks used to validate word placement.
 //
-// safeZone: A shrunk version of the binary mask. Any rectangle that fits
-//	completely inside this mask is guaranteed to have enough
-//	breathing room from the actual shape boundary.
+// safeZone is a slightly eroded placement mask that keeps words away from the
+// shape boundary. occupancy starts empty and tracks already placed words.
 //
-// occupancy: Starts empty. We mark areas as occupied when we place words.
-//	This lets us quickly check if a candidate position overlaps
-//	any already placed word.
-func GetValidationMask(mask *Mask) (*gocv.Mat, *gocv.Mat, error) {
+// The caller owns both returned matrices.
+func GetValidationMask(
+	mask *Mask,
+) (*gocv.Mat, *gocv.Mat, error) {
 	safeZone := gocv.NewMat()
 
-	// Create a kernel size based on padding.
-	// A kernel of size (padding*2 + 1) roughly erodes by `padding` pixels.
-	kSize := 3
-	kernel := gocv.GetStructuringElement(gocv.MorphRect, image.Point{kSize, kSize})
+	// A 3×3 kernel erodes the boundary by approximately one pixel.
+	kernel := gocv.GetStructuringElement(
+		gocv.MorphRect,
+		image.Point{X: 3, Y: 3},
+	)
 	defer kernel.Close()
 
-	if err := gocv.Erode(*mask.BinaryMat, &safeZone, kernel); err != nil {
+	if err := gocv.Erode(
+		*mask.BinaryMat,
+		&safeZone,
+		kernel,
+	); err != nil {
 		safeZone.Close()
-		return nil, nil, fmt.Errorf("failed to create safe zone: %w", err)
+		return nil, nil, fmt.Errorf("create safe zone: %w", err)
 	}
 
 	occupancy := gocv.NewMatWithSize(

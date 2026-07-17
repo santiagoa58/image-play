@@ -24,7 +24,7 @@ func Generate(cfg Config) error {
 
 	// 2. Prepare mask (binary + distance)
 	logger.Info("preparing mask", "path", cfg.InputPath)
-	mask, err := imageutil.PrepareMask(cfg.InputPath, cfg.MaskSource, cfg.AlphaThreshold)
+	mask, err := imageutil.PrepareMask(cfg.InputPath, cfg.AlphaThreshold)
 	if err != nil {
 		return fmt.Errorf("prepare mask: %w", err)
 	}
@@ -61,7 +61,7 @@ func Generate(cfg Config) error {
 	logger.Info("placing words")
 	var placed []PlacedWord
 	for _, w := range words {
-		p, ok := placeCtx.TryPlace(w, cfg.MaxAttemptsPerCenter)
+		p, ok := placeCtx.TryPlace(w)
 		if ok {
 			placed = append(placed, p)
 		}

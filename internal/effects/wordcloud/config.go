@@ -3,8 +3,6 @@ package wordcloud
 import (
 	"errors"
 	"strings"
-
-	"github.com/santiagoa58/image-play/internal/imageutil"
 )
 
 type Config struct {
@@ -17,12 +15,11 @@ type Config struct {
 	MaxFontSize float64
 	WordLimit   int
 
-	MaxAttemptsPerCenter    int
+	SpiralStepsPerCenter    int
 	MinCenterDepthRatio     float64
 	CenterSuppressionRadius int
 	SafeZoneErodeSize       int
 
-	MaskSource     imageutil.MaskSource
 	AlphaThreshold uint8
 	WordPadding    int
 	Angles         []int // degrees; initially 0 and 90
@@ -49,7 +46,7 @@ func NewConfig(options ...Option) Config {
 		MinFontSize:             6,
 		MaxFontSize:             48,
 		WordLimit:               1000,
-		MaxAttemptsPerCenter:    500,
+		SpiralStepsPerCenter:    500,
 		MinCenterDepthRatio:     0.01,
 		CenterSuppressionRadius: 0, // automatic
 		SafeZoneErodeSize:       3,
@@ -82,7 +79,7 @@ func (cfg Config) Validate() error {
 		return errors.New("maximum font size must be >= minimum")
 	case cfg.WordLimit <= 0:
 		return errors.New("word limit must be positive")
-	case cfg.MaxAttemptsPerCenter <= 0:
+	case cfg.SpiralStepsPerCenter <= 0:
 		return errors.New("attempt count must be positive")
 	case cfg.MinCenterDepthRatio <= 0 || cfg.MinCenterDepthRatio > 1:
 		return errors.New("center depth ratio must be in (0, 1]")
@@ -112,7 +109,7 @@ func WithWordLimit(limit int) Option {
 }
 
 func WithMaxAttemptsPerCenter(attempts int) Option {
-	return func(cfg *Config) { cfg.MaxAttemptsPerCenter = attempts }
+	return func(cfg *Config) { cfg.SpiralStepsPerCenter = attempts }
 }
 
 func WithMinCenterDepthRatio(ratio float64) Option {
