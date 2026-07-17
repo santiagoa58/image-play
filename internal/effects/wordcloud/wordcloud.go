@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/fogleman/gg"
 	"github.com/santiagoa58/image-play/internal/imageutil"
 	"github.com/santiagoa58/image-play/internal/textutil"
 )
@@ -45,7 +44,15 @@ func Generate(cfg Config) error {
 	}
 
 	// 4. Convert counts to sized words (sorted largest → smallest)
-	words, err := textutil.WordsWithMeasurements(wordHeap, cfg.MinFontSize, cfg.MaxFontSize, cfg.FontPath, cfg.WordLimit)
+	words, err := textutil.MeasureWords(
+		wordHeap,
+		textutil.WordMeasurementConfig{
+			FontPath:    cfg.FontPath,
+			MinFontSize: cfg.MinFontSize,
+			MaxFontSize: cfg.MaxFontSize,
+			Limit:       cfg.WordLimit,
+		},
+	)
 	if err != nil {
 		return err
 	}
@@ -89,28 +96,8 @@ func Generate(cfg Config) error {
 
 	// 7. Render final image
 	logger.Info("rendering word cloud", "output", outputPath)
-	dc := gg.NewContext(mask.Width, mask.Height)
-	dc.SetRGB(1, 1, 1) // white background
-	dc.Clear()
-
-	for _, p := range placed {
-		if err := dc.LoadFontFace(cfg.FontPath, p.Word.FontSize); err != nil {
-			logger.Warn("failed to load font", "word", p.Word, "error", err)
-			continue
-		}
-		dc.SetRGB(0, 0, 0) // black text
-		dc.DrawStringAnchored(p.Word.Text, p.X, p.Y, 0.5, 0.5)
-	}
-
-	if err := dc.SavePNG(outputPath); err != nil {
-		return fmt.Errorf("save word cloud: %w", err)
-	}
-	if err := writeWordcloudDebug(
-		cfg.Debug,
-		outputPath,
-		dc.Image(),
-	); err != nil {
-		return fmt.Errorf("write word-cloud diagnostics: %w", err)
+	if err := RenderRectangles(mask.Width, mask.Height, cfg.FontPath, placed, outputPath, cfg.Debug); err != nil {
+		return err
 	}
 
 	fmt.Printf("✅ Word cloud saved to %s\n", outputPath)
