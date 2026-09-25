@@ -16,6 +16,7 @@ import (
 type PlacedWord struct {
 	Word  textutil.Word
 	X, Y  float64 // center position
+	Angle int
 	Color color.RGBA
 }
 
@@ -27,6 +28,7 @@ type PlacementContext struct {
 	centers     []Center
 	maxAttempts int
 	wordPadding float64
+	angles      []int
 }
 
 // Close releases the gocv resources held by the context.
@@ -52,12 +54,14 @@ func (ctx *PlacementContext) Place(
 	}
 
 	fontSize := math.Min(word.FontSize, maxFontSize)
+	lastTried := word
 
 	for fontSize >= minFontSize {
 		resized, err := textutil.Resize(word, fontSize)
 		if err != nil {
 			return PlacedWord{}, fmt.Errorf("resize word: %w", err)
 		}
+		lastTried = resized
 
 		if placed, ok := ctx.tryPlaceAtSize(resized); ok {
 			return placed, nil
@@ -71,47 +75,58 @@ func (ctx *PlacementContext) Place(
 		fontSize = math.Max(minFontSize, fontSize-decrement)
 	}
 
-	return PlacedWord{}, errors.New("failed to place word")
+	return PlacedWord{}, fmt.Errorf(
+		"failed to place at %.1fpx (%.1fx%.1f)",
+		lastTried.FontSize,
+		lastTried.Width,
+		lastTried.Height,
+	)
 }
 
 // tryPlaceAtSize searches the configured centers and spiral positions for a
 // valid location for a word at one specific measured size.
 func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, bool) {
-	boxW := word.Width + 2*ctx.wordPadding
-	boxH := word.Height + 2*ctx.wordPadding
-
 	for attempt := range ctx.maxAttempts {
 		for _, center := range ctx.centers {
 			cx, cy := mathutil.GenerateSpiralPosition(center.Point, attempt)
-			rect := mathutil.CenteredRect(cx, cy, boxW, boxH)
 
-			if !rect.In(image.Rect(0, 0, ctx.safeZone.Cols(), ctx.safeZone.Rows())) {
-				continue
+			for _, angle := range ctx.angles {
+				boxW := word.Width + 2*ctx.wordPadding
+				boxH := word.Height + 2*ctx.wordPadding
+				if angle == 90 {
+					boxW, boxH = boxH, boxW
+				}
+
+				rect := mathutil.CenteredRect(cx, cy, boxW, boxH)
+				if !rect.In(image.Rect(0, 0, ctx.safeZone.Cols(), ctx.safeZone.Rows())) {
+					continue
+				}
+
+				safeROI := ctx.safeZone.Region(rect)
+				isSafe := gocv.CountNonZero(safeROI) == rect.Dx()*rect.Dy()
+				safeROI.Close()
+				if !isSafe {
+					continue
+				}
+
+				occROI := ctx.occupancy.Region(rect)
+				isFree := gocv.CountNonZero(occROI) == 0
+				occROI.Close()
+				if !isFree {
+					continue
+				}
+
+				occupiedROI := ctx.occupancy.Region(rect)
+				occupiedROI.SetTo(gocv.NewScalar(255, 0, 0, 0))
+				occupiedROI.Close()
+
+				return PlacedWord{
+					Word:  word,
+					X:     cx,
+					Y:     cy,
+					Angle: angle,
+				}, true
 			}
-
-			safeROI := ctx.safeZone.Region(rect)
-			isSafe := gocv.CountNonZero(safeROI) == rect.Dx()*rect.Dy()
-			safeROI.Close()
-			if !isSafe {
-				continue
-			}
-
-			occROI := ctx.occupancy.Region(rect)
-			isFree := gocv.CountNonZero(occROI) == 0
-			occROI.Close()
-			if !isFree {
-				continue
-			}
-
-			occupiedROI := ctx.occupancy.Region(rect)
-			occupiedROI.SetTo(gocv.NewScalar(255, 0, 0, 0))
-			occupiedROI.Close()
-
-			return PlacedWord{
-				Word: word,
-				X:    cx,
-				Y:    cy,
-			}, true
 		}
 	}
 
@@ -119,6 +134,15 @@ func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, boo
 }
 
 func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, error) {
+	if len(cfg.Angles) == 0 {
+		return nil, errors.New("at least one placement angle is required")
+	}
+	for _, angle := range cfg.Angles {
+		if angle != 0 && angle != 90 {
+			return nil, fmt.Errorf("unsupported placement angle %d: only 0 and 90 are supported", angle)
+		}
+	}
+
 	safe, occ, err := newValidationMasks(mask, cfg.SafeZoneErodeSize)
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare masks for placement: %w", err)
@@ -135,6 +159,7 @@ func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, e
 		centers:     centers,
 		maxAttempts: cfg.SpiralStepsPerCenter,
 		wordPadding: float64(cfg.WordPadding),
+		angles:      append([]int(nil), cfg.Angles...),
 	}, nil
 }
 

@@ -1,4 +1,4 @@
-name: Temp wordcloud placement diagnostics
+name: Temp wordcloud rotation verification
 
 on:
   push:
@@ -7,44 +7,60 @@ on:
   workflow_dispatch:
 
 jobs:
-  diagnose:
+  verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Check out branch
         uses: actions/checkout@v4
 
-      - name: Add temporary placement logging
+      - name: Build test toolchain
+        run: docker build --target toolchain -t image-play:toolchain .
+
+      - name: Run tests
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p = Path("internal/effects/wordcloud/wordcloud.go")
-          s = p.read_text()
-          s = s.replace(
-              'logger.Info("placing words")',
-              'fmt.Printf("DIAG centers=%d\\n", len(placeCtx.centers))\n\tlogger.Info("placing words")'
-          )
-          s = s.replace(
-              'placed = append(placed, p)',
-              'fmt.Printf("DIAG placed word=%s size=%.1f\\n", p.Word.Text, p.Word.FontSize)\n\t\tplaced = append(placed, p)'
-          )
-          p.write_text(s)
-          PY
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            image-play:toolchain \
+            go test ./...
 
       - name: Build CLI image
-        run: docker build --target runtime -t image-play:wordcloud-diag .
+        run: docker build --target runtime -t image-play:wordcloud-test .
 
-      - name: Generate DeepSeek word cloud
+      - name: Generate word clouds for all test images
         run: |
           mkdir -p action-output
           chmod 777 action-output
-          docker run --rm \
-            -v "$PWD/testdata:/work/testdata:ro" \
-            -v "$PWD/fonts:/work/fonts:ro" \
-            -v "$PWD/action-output:/work/output" \
-            image-play:wordcloud-diag \
-            -in /work/testdata/images/deepseek-logo-icon.png \
-            -text /work/testdata/text/sample_text_message.txt \
-            -font "/work/fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
-            -out /work/output/deepseek-wordcloud.png
+
+          for image in testdata/images/*; do
+            name="$(basename "$image")"
+            stem="${name%.*}"
+            echo "::group::Generating $name"
+            docker run --rm \
+              -v "$PWD/testdata:/work/testdata:ro" \
+              -v "$PWD/fonts:/work/fonts:ro" \
+              -v "$PWD/action-output:/work/output" \
+              image-play:wordcloud-test \
+              -in "/work/$image" \
+              -text /work/testdata/text/sample_text_message.txt \
+              -font "/work/fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+              -out "/work/output/$stem-wordcloud.png"
+            echo "::endgroup::"
+          done
+
+      - name: Verify generated outputs
+        run: |
+          for output in action-output/*-wordcloud.png; do
+            test -s "$output"
+            file "$output"
+            ls -lh "$output"
+          done
+
+      - name: Upload generated word clouds
+        uses: actions/upload-artifact@v4
+        with:
+          name: wordcloud-rotation-results
+          path: action-output/*-wordcloud.png
+          if-no-files-found: error

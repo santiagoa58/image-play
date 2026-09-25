@@ -3,6 +3,7 @@ package wordcloud
 import (
 	"fmt"
 	"log/slog"
+	"math"
 
 	"github.com/fogleman/gg"
 )
@@ -24,8 +25,13 @@ func RenderRectangles(
 			logger.Warn("failed to load font", "word", p.Word, "error", err)
 			continue
 		}
+
 		dc.SetRGB(0, 0, 0) // black text
-		dc.DrawStringAnchored(p.Word.Text, p.X, p.Y, 0.5, 0.5)
+		dc.Push()
+		dc.Translate(p.X, p.Y)
+		dc.Rotate(float64(p.Angle) * math.Pi / 180)
+		dc.DrawStringAnchored(p.Word.Text, 0, 0, 0.5, 0.5)
+		dc.Pop()
 	}
 
 	if err := dc.SavePNG(outputPath); err != nil {

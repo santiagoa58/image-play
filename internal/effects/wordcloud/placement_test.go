@@ -47,6 +47,50 @@ func TestRectanglePlacementSucceedsInsideSafeZone(t *testing.T) {
 			placed.Y,
 		)
 	}
+	if placed.Angle != 0 {
+		t.Errorf("placed angle = %d, want 0", placed.Angle)
+	}
+}
+
+func TestRectanglePlacementFallsBackToVertical(t *testing.T) {
+	ctx := newPlacementTestContext(
+		t,
+		image.Rect(46, 20, 54, 80),
+		[]image.Point{image.Pt(50, 50)},
+		0,
+	)
+	ctx.angles = []int{0, 90}
+
+	word := testWord(30, 6)
+	placed, ok := ctx.tryPlaceAtSize(word)
+	if !ok {
+		t.Fatal("tryPlaceAtSize() = false, want vertical placement")
+	}
+	if placed.Angle != 90 {
+		t.Errorf("placed angle = %d, want 90", placed.Angle)
+	}
+
+	if got := gocv.CountNonZero(*ctx.occupancy); got != 30*6 {
+		t.Errorf("occupied area = %d, want %d", got, 30*6)
+	}
+}
+
+func TestRectanglePlacementPrefersHorizontalWhenBothFit(t *testing.T) {
+	ctx := newPlacementTestContext(
+		t,
+		image.Rect(0, 0, 100, 100),
+		[]image.Point{image.Pt(50, 50)},
+		0,
+	)
+	ctx.angles = []int{0, 90}
+
+	placed, ok := ctx.tryPlaceAtSize(testWord(20, 10))
+	if !ok {
+		t.Fatal("tryPlaceAtSize() = false, want true")
+	}
+	if placed.Angle != 0 {
+		t.Errorf("placed angle = %d, want 0", placed.Angle)
+	}
 }
 
 func TestRectanglePlacementRejectsSafeZoneBoundaryCrossing(t *testing.T) {
@@ -247,6 +291,7 @@ func newPlacementTestContext(
 		centers:     centers,
 		maxAttempts: 1,
 		wordPadding: padding,
+		angles:      []int{0},
 	}
 	t.Cleanup(ctx.Close)
 

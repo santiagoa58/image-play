@@ -87,7 +87,7 @@ func Generate(cfg Config) error {
 
 		p, err := placeCtx.Place(w, prevFontSize, cfg.MinFontSize, 0.1)
 		if err != nil {
-			fmt.Printf("skipping word %s. Got: %v\n", w.Text, err)
+			fmt.Printf("skipping word %q: %v\n", w.Text, err)
 			continue
 		}
 		placed = append(placed, p)
