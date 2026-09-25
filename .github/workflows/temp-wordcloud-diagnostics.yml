@@ -9,7 +9,7 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 20
 
     steps:
       - name: Check out branch
@@ -26,23 +26,48 @@ jobs:
             image-play:toolchain \
             go test ./...
 
-      - name: Build CLI image
-        run: docker build --target runtime -t image-play:wordcloud-test .
+      - name: Build CLI image for DeepSeek
+        run: docker build --target runtime -t image-play:wordcloud-full .
 
-      - name: Generate word clouds for all test images
+      - name: Generate DeepSeek word cloud with full 1000-word limit
         run: |
           mkdir -p action-output
           chmod 777 action-output
+          timeout 6m docker run --rm \
+            -v "$PWD/testdata:/work/testdata:ro" \
+            -v "$PWD/fonts:/work/fonts:ro" \
+            -v "$PWD/action-output:/work/output" \
+            image-play:wordcloud-full \
+            -in /work/testdata/images/deepseek-logo-icon.png \
+            -text /work/testdata/text/sample_text_message.txt \
+            -font "/work/fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+            -out /work/output/deepseek-logo-icon-wordcloud.png
 
-          for image in testdata/images/*; do
+      - name: Build smaller-limit CLI for generalization checks
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("internal/effects/wordcloud/config.go")
+          s = p.read_text().replace("WordLimit:               1000,", "WordLimit:               200,")
+          p.write_text(s)
+          PY
+          docker build --target runtime -t image-play:wordcloud-generalization .
+
+      - name: Generate word clouds for remaining test images
+        run: |
+          for image in \
+            testdata/images/couple_tour.jpg \
+            testdata/images/gen-img-couple.png \
+            testdata/images/keeks_no_bckgrnd.png
+          do
             name="$(basename "$image")"
             stem="${name%.*}"
             echo "::group::Generating $name"
-            docker run --rm \
+            timeout 4m docker run --rm \
               -v "$PWD/testdata:/work/testdata:ro" \
               -v "$PWD/fonts:/work/fonts:ro" \
               -v "$PWD/action-output:/work/output" \
-              image-play:wordcloud-test \
+              image-play:wordcloud-generalization \
               -in "/work/$image" \
               -text /work/testdata/text/sample_text_message.txt \
               -font "/work/fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
