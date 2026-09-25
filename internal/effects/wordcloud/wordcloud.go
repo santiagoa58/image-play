@@ -86,7 +86,9 @@ func Generate(cfg Config) error {
 	horizontal := 0
 	vertical := 0
 
-	for _, w := range words {
+	for i, w := range words {
+		percent := 100 * i / len(words)
+		fmt.Printf("\rProgress: [%3d%%] %d/%d", percent, i+1, len(words))
 		prevFontSize := cfg.MaxFontSize
 		if len(placed) > 0 {
 			last := placed[len(placed)-1]
@@ -115,7 +117,7 @@ func Generate(cfg Config) error {
 	placementDuration := time.Since(placementStarted)
 
 	logger.Info(
-		"placement complete",
+		"\nplacement complete",
 		"prepared", len(words),
 		"placed", len(placed),
 		"skipped", skipped,

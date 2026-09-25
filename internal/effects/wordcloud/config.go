@@ -45,7 +45,7 @@ func NewConfig(options ...Option) Config {
 	cfg := Config{
 		MinFontSize:             6,
 		MaxFontSize:             48,
-		WordLimit:               1000,
+		WordLimit:               500,
 		SpiralStepsPerCenter:    500,
 		MinCenterDepthRatio:     0.01,
 		CenterSuppressionRadius: 0, // automatic
