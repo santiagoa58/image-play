@@ -79,10 +79,17 @@ func Generate(cfg Config) error {
 	logger.Info("placing words")
 	var placed []PlacedWord
 	for _, w := range words {
-		p, ok := placeCtx.TryPlace(w)
-		if ok {
-			placed = append(placed, p)
+		prevFontSize := cfg.MaxFontSize
+		if len(placed) > 0 {
+			last := placed[len(placed)-1]
+			prevFontSize = last.Word.FontSize
 		}
+		p, err := placeCtx.Place(w, prevFontSize, cfg.MinFontSize, 0.1)
+		if err != nil {
+			fmt.Printf("skipping word %s. Got: %w\n", w.Text, err.Error())
+			continue
+		}
+		placed = append(placed, p)
 	}
 
 	if err := writePlacementDebug(

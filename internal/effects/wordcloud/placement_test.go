@@ -17,9 +17,9 @@ func TestRectanglePlacementSucceedsInsideSafeZone(t *testing.T) {
 		0,
 	)
 
-	placed, ok := ctx.TryPlace(testWord(20, 10))
+	placed, ok := ctx.Place(testWord(20, 10))
 	if !ok {
-		t.Fatal("TryPlace() = false, want true")
+		t.Fatal("Place() = false, want true")
 	}
 	if placed.X != 50 || placed.Y != 50 {
 		t.Errorf(
@@ -38,8 +38,8 @@ func TestRectanglePlacementRejectsSafeZoneBoundaryCrossing(t *testing.T) {
 		0,
 	)
 
-	if _, ok := ctx.TryPlace(testWord(20, 10)); ok {
-		t.Fatal("TryPlace() = true for a word crossing the safe-zone boundary")
+	if _, ok := ctx.Place(testWord(20, 10)); ok {
+		t.Fatal("Place() = true for a word crossing the safe-zone boundary")
 	}
 }
 
@@ -51,8 +51,8 @@ func TestRectanglePlacementRejectsImageBoundsCrossing(t *testing.T) {
 		0,
 	)
 
-	if _, ok := ctx.TryPlace(testWord(20, 10)); ok {
-		t.Fatal("TryPlace() = true for a word crossing the image bounds")
+	if _, ok := ctx.Place(testWord(20, 10)); ok {
+		t.Fatal("Place() = true for a word crossing the image bounds")
 	}
 }
 
@@ -65,11 +65,11 @@ func TestRectanglePlacementRejectsOccupiedCenter(t *testing.T) {
 	)
 	word := testWord(20, 10)
 
-	if _, ok := ctx.TryPlace(word); !ok {
-		t.Fatal("first TryPlace() = false, want true")
+	if _, ok := ctx.Place(word); !ok {
+		t.Fatal("first Place() = false, want true")
 	}
-	if _, ok := ctx.TryPlace(word); ok {
-		t.Fatal("second TryPlace() = true at an occupied center")
+	if _, ok := ctx.Place(word); ok {
+		t.Fatal("second Place() = true at an occupied center")
 	}
 }
 
@@ -85,13 +85,13 @@ func TestRectanglePlacementUsesSeparatedCenters(t *testing.T) {
 	)
 	word := testWord(20, 10)
 
-	first, ok := ctx.TryPlace(word)
+	first, ok := ctx.Place(word)
 	if !ok {
-		t.Fatal("first TryPlace() = false, want true")
+		t.Fatal("first Place() = false, want true")
 	}
-	second, ok := ctx.TryPlace(word)
+	second, ok := ctx.Place(word)
 	if !ok {
-		t.Fatal("second TryPlace() = false, want true")
+		t.Fatal("second Place() = false, want true")
 	}
 
 	if first.X != 30 || first.Y != 50 {
@@ -125,11 +125,11 @@ func TestRectanglePlacementPaddingIncreasesOccupiedArea(t *testing.T) {
 	)
 	word := testWord(20, 10)
 
-	if _, ok := withoutPadding.TryPlace(word); !ok {
-		t.Fatal("TryPlace() without padding = false, want true")
+	if _, ok := withoutPadding.Place(word); !ok {
+		t.Fatal("Place() without padding = false, want true")
 	}
-	if _, ok := withPadding.TryPlace(word); !ok {
-		t.Fatal("TryPlace() with padding = false, want true")
+	if _, ok := withPadding.Place(word); !ok {
+		t.Fatal("Place() with padding = false, want true")
 	}
 
 	withoutArea := gocv.CountNonZero(*withoutPadding.occupancy)

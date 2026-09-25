@@ -14,6 +14,7 @@ type Word struct {
 	FontSize float64
 	Width    float64
 	Height   float64
+	fontpath string
 }
 
 // WordMeasurementConfig controls frequency-based sizing and font measurement.
@@ -22,6 +23,25 @@ type WordMeasurementConfig struct {
 	MinFontSize float64
 	MaxFontSize float64
 	Limit       int
+}
+
+func Resize(w Word, f float64) (Word, error) {
+	if w.FontSize == f {
+		return w, nil
+	}
+	dc := gg.NewContext(1, 1)
+	width, height, err := measureWord(dc, w.Text, w.fontpath, f)
+	if err != nil {
+		return w, fmt.Errorf("resize word: %w", err)
+	}
+	return Word{
+		Text:     w.Text,
+		Weight:   w.Weight,
+		FontSize: f,
+		Width:    width,
+		Height:   height,
+		fontpath: w.fontpath,
+	}, nil
 }
 
 // MeasureWords returns the most frequent words with logarithmically scaled
@@ -70,6 +90,7 @@ func MeasureWords(h WordHeap, cfg WordMeasurementConfig) ([]Word, error) {
 			FontSize: size,
 			Width:    width,
 			Height:   height,
+			fontpath: cfg.FontPath,
 		}
 	}
 

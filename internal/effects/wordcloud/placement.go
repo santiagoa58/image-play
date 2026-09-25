@@ -1,9 +1,11 @@
 package wordcloud
 
 import (
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
+	"math"
 
 	"github.com/santiagoa58/image-play/internal/imageutil"
 	"github.com/santiagoa58/image-play/internal/mathutil"
@@ -37,57 +39,67 @@ func (ctx *PlacementContext) Close() {
 	}
 }
 
-// tryPlaceWord attempts to place a single word using spirals from multiple centers.
-// It returns the placed word and whether placement was successful.
-func (ctx *PlacementContext) TryPlace(word textutil.Word) (PlacedWord, bool) {
-
-	if len(ctx.centers) == 0 {
-		return PlacedWord{}, false
+/**
+ * Place attempts to place a single word using spirals from multiple centers.
+ * It returns the placed word and whether placement was successful.
+ * word - word to try and place
+ * minFontsize - minimum fontsize
+ * stepsize - value between 0 and 1, used to determine next attempted fontsize
+ */
+func (ctx *PlacementContext) Place(word textutil.Word, maxFontsize, minFontsize, stepsize float64) (PlacedWord, error) {
+	if stepsize < 0 || stepsize > 1 {
+		return PlacedWord{}, errors.New("stepsize must be a value between 0 and 1")
 	}
-
+	if len(ctx.centers) == 0 {
+		return PlacedWord{}, errors.New("expected non-empty centers")
+	}
 	boxW := word.Width + 2*ctx.wordPadding
 	boxH := word.Height + 2*ctx.wordPadding
 
-	for attempt := 0; attempt < ctx.maxAttempts; attempt++ {
-		for _, center := range ctx.centers {
-			cx, cy := mathutil.GenerateSpiralPosition(center.Point, attempt)
-			rect := mathutil.CenteredRect(cx, cy, boxW, boxH)
+	for f := math.Min(word.FontSize, maxFontsize); f > minFontsize; f -= math.Round(f * stepsize) {
+		w, err := textutil.Resize(word, f)
+		if err != nil {
+			return PlacedWord{}, fmt.Errorf("failed to resize word: %w", err)
+		}
+		for attempt := range ctx.maxAttempts {
+			for _, center := range ctx.centers {
+				cx, cy := mathutil.GenerateSpiralPosition(center.Point, attempt+1)
+				rect := mathutil.CenteredRect(cx, cy, boxW, boxH)
 
-			if !rect.In(image.Rect(0, 0, ctx.safeZone.Cols(), ctx.safeZone.Rows())) {
-				continue
+				if !rect.In(image.Rect(0, 0, ctx.safeZone.Cols(), ctx.safeZone.Rows())) {
+					continue
+				}
+
+				// Check safe zone
+				safeROI := ctx.safeZone.Region(rect)
+				isSafe := gocv.CountNonZero(safeROI) == rect.Dx()*rect.Dy()
+				safeROI.Close()
+				if !isSafe {
+					continue
+				}
+
+				// Check occupancy
+				occROI := ctx.occupancy.Region(rect)
+				isFree := gocv.CountNonZero(occROI) == 0
+				occROI.Close()
+				if !isFree {
+					continue
+				}
+
+				// Valid position found — mark as occupied
+				occROI2 := ctx.occupancy.Region(rect)
+				occROI2.SetTo(gocv.NewScalar(255, 0, 0, 0))
+				occROI2.Close()
+
+				return PlacedWord{
+					Word: w,
+					X:    cx,
+					Y:    cy,
+				}, nil
 			}
-
-			// Check safe zone
-			safeROI := ctx.safeZone.Region(rect)
-			isSafe := gocv.CountNonZero(safeROI) == rect.Dx()*rect.Dy()
-			safeROI.Close()
-			if !isSafe {
-				continue
-			}
-
-			// Check occupancy
-			occROI := ctx.occupancy.Region(rect)
-			isFree := gocv.CountNonZero(occROI) == 0
-			occROI.Close()
-			if !isFree {
-				continue
-			}
-
-			// Valid position found — mark as occupied
-			occROI2 := ctx.occupancy.Region(rect)
-			occROI2.SetTo(gocv.NewScalar(255, 0, 0, 0))
-			occROI2.Close()
-
-			return PlacedWord{
-				Word: word,
-				X:    cx,
-				Y:    cy,
-			}, true
 		}
 	}
-
-	return PlacedWord{}, false
-
+	return PlacedWord{}, errors.New("failed to place word")
 }
 
 func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, error) {
