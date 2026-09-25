@@ -13,6 +13,8 @@ import (
 	"gocv.io/x/gocv"
 )
 
+var errNoPlacement = errors.New("no valid placement")
+
 type PlacedWord struct {
 	Word  textutil.Word
 	X, Y  float64 // center position
@@ -76,29 +78,32 @@ func (ctx *PlacementContext) Place(
 	}
 
 	return PlacedWord{}, fmt.Errorf(
-		"failed to place at %.1fpx (%.1fx%.1f)",
+		"%w at %.1fpx (%.1fx%.1f)",
+		errNoPlacement,
 		lastTried.FontSize,
 		lastTried.Width,
 		lastTried.Height,
 	)
 }
 
-// tryPlaceAtSize searches the configured centers and spiral positions for a
-// valid location for a word at one specific measured size.
+// tryPlaceAtSize searches every configured position for the preferred angle
+// before falling back to the next angle.
 func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, bool) {
-	for attempt := range ctx.maxAttempts {
-		for _, center := range ctx.centers {
-			cx, cy := mathutil.GenerateSpiralPosition(center.Point, attempt)
+	imageBounds := image.Rect(0, 0, ctx.safeZone.Cols(), ctx.safeZone.Rows())
 
-			for _, angle := range ctx.angles {
-				boxW := word.Width + 2*ctx.wordPadding
-				boxH := word.Height + 2*ctx.wordPadding
-				if angle == 90 {
-					boxW, boxH = boxH, boxW
-				}
+	for _, angle := range ctx.angles {
+		boxW := word.Width + 2*ctx.wordPadding
+		boxH := word.Height + 2*ctx.wordPadding
+		if angle == 90 {
+			boxW, boxH = boxH, boxW
+		}
 
+		for attempt := range ctx.maxAttempts {
+			for _, center := range ctx.centers {
+				cx, cy := mathutil.GenerateSpiralPosition(center.Point, attempt)
 				rect := mathutil.CenteredRect(cx, cy, boxW, boxH)
-				if !rect.In(image.Rect(0, 0, ctx.safeZone.Cols(), ctx.safeZone.Rows())) {
+
+				if !rect.In(imageBounds) {
 					continue
 				}
 

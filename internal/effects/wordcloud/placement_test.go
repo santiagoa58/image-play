@@ -1,6 +1,7 @@
 package wordcloud
 
 import (
+	"errors"
 	"image"
 	"testing"
 
@@ -25,6 +26,22 @@ func TestPlaceAttemptsMinimumFontSize(t *testing.T) {
 	}
 	if placed.Word.FontSize != 5 {
 		t.Errorf("placed font size = %v, want 5", placed.Word.FontSize)
+	}
+}
+
+func TestPlaceReturnsNoPlacementError(t *testing.T) {
+	ctx := newPlacementTestContext(
+		t,
+		image.Rect(40, 40, 60, 60),
+		[]image.Point{image.Pt(50, 50)},
+		0,
+	)
+	word := testWord(30, 30)
+	word.FontSize = 5
+
+	_, err := ctx.Place(word, 5, 5, 0.1)
+	if !errors.Is(err, errNoPlacement) {
+		t.Fatalf("Place() error = %v, want errNoPlacement", err)
 	}
 }
 
@@ -72,6 +89,43 @@ func TestRectanglePlacementFallsBackToVertical(t *testing.T) {
 
 	if got := gocv.CountNonZero(*ctx.occupancy); got != 30*6 {
 		t.Errorf("occupied area = %d, want %d", got, 30*6)
+	}
+}
+
+func TestRectanglePlacementSearchesHorizontalBeforeVertical(t *testing.T) {
+	ctx := newPlacementTestContext(
+		t,
+		image.Rect(0, 0, 100, 100),
+		[]image.Point{
+			image.Pt(25, 50),
+			image.Pt(75, 50),
+		},
+		0,
+	)
+	ctx.angles = []int{0, 90}
+	ctx.safeZone.SetTo(gocv.NewScalar(0, 0, 0, 0))
+
+	verticalSlot := ctx.safeZone.Region(image.Rect(21, 30, 29, 70))
+	verticalSlot.SetTo(gocv.NewScalar(255, 0, 0, 0))
+	verticalSlot.Close()
+
+	horizontalSlot := ctx.safeZone.Region(image.Rect(55, 46, 95, 54))
+	horizontalSlot.SetTo(gocv.NewScalar(255, 0, 0, 0))
+	horizontalSlot.Close()
+
+	placed, ok := ctx.tryPlaceAtSize(testWord(30, 6))
+	if !ok {
+		t.Fatal("tryPlaceAtSize() = false, want true")
+	}
+	if placed.Angle != 0 {
+		t.Errorf("placed angle = %d, want 0", placed.Angle)
+	}
+	if placed.X != 75 || placed.Y != 50 {
+		t.Errorf(
+			"placed center = (%v,%v), want horizontal slot at (75,50)",
+			placed.X,
+			placed.Y,
+		)
 	}
 }
 

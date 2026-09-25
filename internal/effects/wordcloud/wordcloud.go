@@ -1,8 +1,10 @@
 package wordcloud
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/santiagoa58/image-play/internal/imageutil"
 	"github.com/santiagoa58/image-play/internal/textutil"
@@ -13,6 +15,7 @@ func Generate(cfg Config) error {
 		return fmt.Errorf("validate config: %w", err)
 	}
 
+	started := time.Now()
 	logger := slog.Default()
 
 	// 1. Resolve output path
@@ -77,7 +80,12 @@ func Generate(cfg Config) error {
 
 	// 6. Place words
 	logger.Info("placing words")
+	placementStarted := time.Now()
 	var placed []PlacedWord
+	skipped := 0
+	horizontal := 0
+	vertical := 0
+
 	for _, w := range words {
 		prevFontSize := cfg.MaxFontSize
 		if len(placed) > 0 {
@@ -87,11 +95,34 @@ func Generate(cfg Config) error {
 
 		p, err := placeCtx.Place(w, prevFontSize, cfg.MinFontSize, 0.1)
 		if err != nil {
-			fmt.Printf("skipping word %q: %v\n", w.Text, err)
-			continue
+			if errors.Is(err, errNoPlacement) {
+				skipped++
+				if cfg.Debug {
+					logger.Info("word skipped", "word", w.Text, "reason", err)
+				}
+				continue
+			}
+			return fmt.Errorf("place word %q: %w", w.Text, err)
 		}
+
 		placed = append(placed, p)
+		if p.Angle == 90 {
+			vertical++
+		} else {
+			horizontal++
+		}
 	}
+	placementDuration := time.Since(placementStarted)
+
+	logger.Info(
+		"placement complete",
+		"prepared", len(words),
+		"placed", len(placed),
+		"skipped", skipped,
+		"horizontal", horizontal,
+		"vertical", vertical,
+		"duration", placementDuration,
+	)
 
 	if err := writePlacementDebug(
 		cfg.Debug,
@@ -108,6 +139,10 @@ func Generate(cfg Config) error {
 		return err
 	}
 
-	fmt.Printf("✅ Word cloud saved to %s\n", outputPath)
+	logger.Info(
+		"word cloud generated",
+		"output", outputPath,
+		"total_duration", time.Since(started),
+	)
 	return nil
 }
