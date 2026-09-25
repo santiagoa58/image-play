@@ -1,0 +1,50 @@
+name: Temp wordcloud placement diagnostics
+
+on:
+  push:
+    branches:
+      - feature/init-wordcloud
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+
+      - name: Add temporary placement logging
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("internal/effects/wordcloud/wordcloud.go")
+          s = p.read_text()
+          s = s.replace(
+              'logger.Info("placing words")',
+              'fmt.Printf("DIAG centers=%d\\n", len(placeCtx.centers))\n\tlogger.Info("placing words")'
+          )
+          s = s.replace(
+              'placed = append(placed, p)',
+              'fmt.Printf("DIAG placed word=%s size=%.1f\\n", p.Word.Text, p.Word.FontSize)\n\t\tplaced = append(placed, p)'
+          )
+          p.write_text(s)
+          PY
+
+      - name: Build CLI image
+        run: docker build --target runtime -t image-play:wordcloud-diag .
+
+      - name: Generate DeepSeek word cloud
+        run: |
+          mkdir -p action-output
+          chmod 777 action-output
+          docker run --rm \
+            -v "$PWD/testdata:/work/testdata:ro" \
+            -v "$PWD/fonts:/work/fonts:ro" \
+            -v "$PWD/action-output:/work/output" \
+            image-play:wordcloud-diag \
+            -in /work/testdata/images/deepseek-logo-icon.png \
+            -text /work/testdata/text/sample_text_message.txt \
+            -font "/work/fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+            -out /work/output/deepseek-wordcloud.png
