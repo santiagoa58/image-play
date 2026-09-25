@@ -16,5 +16,6 @@
 			"installDockerComposeSwitch": false
 		}
 	},
+	"containerUser": "root",
 	"remoteUser": "dev"
 }
