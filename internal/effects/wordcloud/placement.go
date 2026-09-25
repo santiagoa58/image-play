@@ -103,9 +103,9 @@ func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, boo
 				continue
 			}
 
-			occROI := ctx.occupancy.Region(rect)
-			occROI.SetTo(gocv.NewScalar(255, 0, 0, 0))
-			occROI.Close()
+			occupiedROI := ctx.occupancy.Region(rect)
+			occupiedROI.SetTo(gocv.NewScalar(255, 0, 0, 0))
+			occupiedROI.Close()
 
 			return PlacedWord{
 				Word: word,
