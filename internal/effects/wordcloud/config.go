@@ -43,10 +43,10 @@ type Option func(*Config)
 //	)
 func NewConfig(options ...Option) Config {
 	cfg := Config{
-		MinFontSize:             5,
+		MinFontSize:             6,
 		MaxFontSize:             48,
 		WordLimit:               1000,
-		SpiralStepsPerCenter:    10,
+		SpiralStepsPerCenter:    500,
 		MinCenterDepthRatio:     0.01,
 		CenterSuppressionRadius: 0, // automatic
 		SafeZoneErodeSize:       3,
