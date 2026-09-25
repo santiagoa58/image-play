@@ -85,7 +85,8 @@ image-play/
 
 ## Requirements
 
-- Go 1.21+
+- Go 1.26.3+
+- OpenCV 4 development files (`libopencv-dev` on Debian, included in the devcontainer)
 - A monospace `.ttf` or `.otf` font
 - An input image such as `.jpg` or `.png`
 
@@ -101,6 +102,12 @@ fonts/NotoSansMono-VariableFont_wdth,wght.ttf
 
 From the repo root:
 
+The devcontainer uses the `toolchain` stage of the root `Dockerfile`. Its
+features add a non-root `dev` user and a Docker CLI connected to the host Docker
+daemon, so image builds can run inside the devcontainer without a nested daemon.
+Rebuild the devcontainer after changing the Dockerfile or devcontainer config.
+For a local Debian installation, install `libopencv-dev` before building.
+
 ```bash
 go build -o ./bin/mosaic ./cmd/mosaic
 ```
@@ -110,6 +117,33 @@ Show help:
 ```bash
 ./bin/mosaic -h
 ```
+
+Build the deployable CLI image from the same Dockerfile:
+
+```bash
+docker build --target runtime -t image-play:mosaic .
+```
+
+The `toolchain` and `compile` stages have OpenCV headers for GoCV. The
+`runtime` stage contains the compiled CLI and OpenCV shared libraries, without
+the Go toolchain. The image runs as a non-root user. To run it locally, mount
+input files and a writable output directory, then pass container paths to the
+CLI.
+When running `docker run` from inside the devcontainer, bind mount source paths
+must refer to paths on the Docker host.
+
+This CLI currently reads and writes local files and exits, so it fits a Cloud
+Run Job. Build a `linux/amd64` image for Cloud Run:
+
+```bash
+docker buildx build --platform linux/amd64 --target runtime \
+  -t REGION-docker.pkg.dev/PROJECT/REPOSITORY/image-play:TAG --push .
+```
+
+The input image, text file, font, and output path need mounted storage or an
+application storage integration. Cloud Run Jobs can mount Cloud Storage buckets
+as volumes; the current CLI does not read `gs://` paths directly. A Cloud Run
+service would also need an HTTP entrypoint that listens on `PORT`.
 
 ---
 
