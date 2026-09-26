@@ -1,0 +1,58 @@
+name: Temp wordcloud layout baseline
+
+on:
+  push:
+    branches:
+      - feature/init-wordcloud
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+
+      - name: Build test toolchain
+        run: docker build --target toolchain -t image-play:toolchain .
+
+      - name: Run tests
+        run: |
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            image-play:toolchain \
+            go test ./...
+
+      - name: Build CLI image
+        run: docker build --target runtime -t image-play:wordcloud-test .
+
+      - name: Generate word clouds for all test images
+        run: |
+          mkdir -p action-output
+          chmod 777 action-output
+
+          for image in testdata/images/*; do
+            name="$(basename "$image")"
+            stem="${name%.*}"
+            echo "::group::Generating $name"
+            docker run --rm \
+              -v "$PWD/testdata:/work/testdata:ro" \
+              -v "$PWD/fonts:/work/fonts:ro" \
+              -v "$PWD/action-output:/work/output" \
+              image-play:wordcloud-test \
+              -in "/work/$image" \
+              -text /work/testdata/text/sample_text_message.txt \
+              -font "/work/fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+              -out "/work/output/$stem-wordcloud.png"
+            echo "::endgroup::"
+          done
+
+      - name: Upload generated word clouds
+        uses: actions/upload-artifact@v4
+        with:
+          name: wordcloud-layout-baseline
+          path: action-output/*-wordcloud.png
+          if-no-files-found: error
