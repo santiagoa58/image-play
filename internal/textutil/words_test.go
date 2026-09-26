@@ -117,3 +117,35 @@ func testWordFontPath(t *testing.T) string {
 
 	return path
 }
+
+func TestMeasureWordsOrdersEqualFrequencyByMeasuredArea(t *testing.T) {
+	heap := WordHeap{
+		{Word: "highest", Count: 10},
+		{Word: "tiny", Count: 5},
+		{Word: "considerablylonger", Count: 5},
+	}
+
+	words, err := MeasureWords(
+		heap,
+		WordMeasurementConfig{
+			FontPath:    testWordFontPath(t),
+			MinFontSize: 10,
+			MaxFontSize: 30,
+			Limit:       3,
+		},
+	)
+	if err != nil {
+		t.Fatalf("MeasureWords() error = %v", err)
+	}
+
+	if words[0].Text != "highest" {
+		t.Fatalf("first word = %q, want highest-frequency word", words[0].Text)
+	}
+	if words[1].Text != "considerablylonger" || words[2].Text != "tiny" {
+		t.Errorf(
+			"equal-frequency order = %q, %q; want larger word before smaller word",
+			words[1].Text,
+			words[2].Text,
+		)
+	}
+}

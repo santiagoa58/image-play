@@ -57,13 +57,24 @@ func Generate(cfg Config) error {
 		return fmt.Errorf("count words: %w", err)
 	}
 
-	// 4. Convert counts to sized words (sorted largest → smallest)
+	// 4. Resolve an image-appropriate maximum size, then measure candidates.
+	maxFontSize, err := resolveMaxFontSize(mask, wordHeap, cfg)
+	if err != nil {
+		return fmt.Errorf("resolve maximum font size: %w", err)
+	}
+	logger.Info(
+		"resolved font range",
+		"min", cfg.MinFontSize,
+		"max", maxFontSize,
+		"automatic_max", cfg.MaxFontSize == 0,
+	)
+
 	words, err := textutil.MeasureWords(
 		wordHeap,
 		textutil.WordMeasurementConfig{
 			FontPath:    cfg.FontPath,
 			MinFontSize: cfg.MinFontSize,
-			MaxFontSize: cfg.MaxFontSize,
+			MaxFontSize: maxFontSize,
 			Limit:       cfg.WordLimit,
 		},
 	)
@@ -100,13 +111,13 @@ func Generate(cfg Config) error {
 	for i, w := range words {
 		percent := 100 * (i + 1) / len(words)
 		fmt.Printf("\rProgress: [%3d%%] %d/%d", percent, i+1, len(words))
-		prevFontSize := cfg.MaxFontSize
+		prevFontSize := maxFontSize
 		if len(placed) > 0 {
 			last := placed[len(placed)-1]
 			prevFontSize = last.Word.FontSize
 		}
 
-		p, err := placeCtx.Place(w, prevFontSize, cfg.MinFontSize, 0.1)
+		p, err := placeCtx.Place(w, prevFontSize, cfg.MinFontSize, placementStepRatio)
 		if err != nil {
 			if errors.Is(err, errNoPlacement) {
 				skipped++

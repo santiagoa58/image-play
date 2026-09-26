@@ -18,7 +18,8 @@ go run ./cmd/mosaic \
 ```
 
 Current defaults include horizontal-first 0/90-degree placement, logarithmic
-frequency scaling, rectangular word footprints, and up to 500 candidate words.
+frequency scaling, rectangular word footprints, an automatic maximum font size,
+and up to 500 candidate words.
 The candidate limit is a source pool: words that cannot fit at the minimum font
 size are skipped.
 
@@ -87,14 +88,19 @@ references next to the code.
 
 ## Placement behavior
 
-Words are processed in frequency order. Their initial font sizes are
-logarithmically mapped into the configured font-size range. If a word cannot
+Words are processed in frequency order. The minimum font size is configured,
+while the default maximum is calibrated against the current image by probing
+the layout with the most important words. Their final target sizes are then
+logarithmically mapped into that resolved font-size range. If a word cannot
 fit, placement retries it at progressively smaller sizes down to the configured
 minimum.
 
 The maximum starting size for each new word is capped by the previous
 successfully placed word's actual size. This keeps rendered sizes
 non-increasing even when an important word had to shrink to fit.
+
+When words have equal frequency, their measured rectangle area breaks the tie:
+larger, harder-to-fit words are attempted before smaller gap-filling words.
 
 For each size, placement searches every configured position horizontally before
 falling back to 90-degree rotation. Search origins come from deep points in the

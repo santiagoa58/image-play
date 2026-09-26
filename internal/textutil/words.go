@@ -2,6 +2,7 @@ package textutil
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/fogleman/gg"
@@ -29,6 +30,31 @@ type WordMeasurementConfig struct {
 	MinFontSize float64
 	MaxFontSize float64
 	Limit       int
+}
+
+// MeasureWord measures one word at an explicit font size.
+func MeasureWord(text string, weight int, fontPath string, fontSize float64) (Word, error) {
+	if strings.TrimSpace(fontPath) == "" {
+		return Word{}, fmt.Errorf("font path is required")
+	}
+	if fontSize <= 0 {
+		return Word{}, fmt.Errorf("font size must be positive")
+	}
+
+	dc := gg.NewContext(1, 1)
+	width, height, err := measureWord(dc, text, fontPath, fontSize)
+	if err != nil {
+		return Word{}, err
+	}
+
+	return Word{
+		Text:     text,
+		Weight:   weight,
+		FontSize: fontSize,
+		Width:    width,
+		Height:   height,
+		fontpath: fontPath,
+	}, nil
 }
 
 // Resize returns w remeasured at font size f.
@@ -106,6 +132,21 @@ func MeasureWords(h WordHeap, cfg WordMeasurementConfig) ([]Word, error) {
 			fontpath: cfg.FontPath,
 		}
 	}
+
+	// Frequency remains the primary hierarchy. When frequencies tie, place the
+	// physically larger/harder-to-fit rectangle first and leave smaller words to
+	// fill fragmented space later.
+	sort.Slice(words, func(i, j int) bool {
+		if words[i].Weight != words[j].Weight {
+			return words[i].Weight > words[j].Weight
+		}
+		areaI := words[i].Width * words[i].Height
+		areaJ := words[j].Width * words[j].Height
+		if areaI != areaJ {
+			return areaI > areaJ
+		}
+		return words[i].Text < words[j].Text
+	})
 
 	return words, nil
 }

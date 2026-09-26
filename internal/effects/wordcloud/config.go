@@ -21,7 +21,8 @@ type Config struct {
 
 	// MinFontSize is the smallest size placement is allowed to try.
 	MinFontSize float64
-	// MaxFontSize is the initial upper bound for the most important words.
+	// MaxFontSize overrides automatic maximum-size calibration when positive.
+	// Zero lets the layout determine a sensible maximum from the image shape.
 	MaxFontSize float64
 	// WordLimit is the maximum number of candidate words considered. It is not
 	// a promise that every candidate will be placed.
@@ -69,7 +70,6 @@ type Option func(*Config)
 func NewConfig(options ...Option) Config {
 	cfg := Config{
 		MinFontSize:             6,
-		MaxFontSize:             48,
 		WordLimit:               500,
 		SpiralStepsPerCenter:    500,
 		MinCenterDepthRatio:     0.01,
@@ -100,8 +100,10 @@ func (cfg Config) Validate() error {
 		return errors.New("font path is required")
 	case cfg.MinFontSize <= 0:
 		return errors.New("minimum font size must be positive")
-	case cfg.MaxFontSize < cfg.MinFontSize:
-		return errors.New("maximum font size must be >= minimum")
+	case cfg.MaxFontSize < 0:
+		return errors.New("maximum font size cannot be negative")
+	case cfg.MaxFontSize > 0 && cfg.MaxFontSize < cfg.MinFontSize:
+		return errors.New("maximum font size must be zero (automatic) or >= minimum")
 	case cfg.WordLimit <= 0:
 		return errors.New("word limit must be positive")
 	case cfg.SpiralStepsPerCenter <= 0:
@@ -130,7 +132,8 @@ func WithMinFontSize(size float64) Option {
 	return func(cfg *Config) { cfg.MinFontSize = size }
 }
 
-// WithMaxFontSize sets the maximum initial font size.
+// WithMaxFontSize overrides automatic maximum-size calibration.
+// Pass zero to use automatic sizing.
 func WithMaxFontSize(size float64) Option {
 	return func(cfg *Config) { cfg.MaxFontSize = size }
 }

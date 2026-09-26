@@ -45,6 +45,9 @@ func (h WordHeap) ToSortedSlice() []WordCount {
 	copy(words, h)
 
 	sort.Slice(words, func(i, j int) bool {
+		if words[i].Count == words[j].Count {
+			return words[i].Word < words[j].Word
+		}
 		return words[i].Count > words[j].Count
 	})
 	return words
