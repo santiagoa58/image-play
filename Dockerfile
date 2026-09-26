@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # GoCV needs OpenCV headers and pkg-config metadata at build time.
-FROM golang:1.26.3-trixie AS toolchain
+FROM golang:1.27.1-trixie AS toolchain
 
 # Drop apt's package indexes in this layer to keep the dev/build image smaller.
 RUN apt-get update \
