@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build toolchain image
+        run: docker build --target toolchain -t image-play:toolchain .
+
+      - name: Check formatting
+        run: |
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            image-play:toolchain \
+            sh -lc 'files="$(gofmt -l .)"; test -z "$files" || { echo "$files"; exit 1; }'
+
+      - name: Vet
+        run: |
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            image-play:toolchain \
+            go vet ./...
+
+      - name: Test
+        run: |
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            image-play:toolchain \
+            go test ./...
+
+      - name: Build runtime image
+        run: docker build --target runtime -t image-play:mosaic .

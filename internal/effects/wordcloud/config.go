@@ -114,6 +114,8 @@ func (cfg Config) Validate() error {
 		return errors.New("suppression radius cannot be negative")
 	case cfg.SafeZoneErodeSize <= 0 || cfg.SafeZoneErodeSize%2 == 0:
 		return errors.New("safe-zone erosion size must be positive and odd")
+	case cfg.WordPadding < 0:
+		return errors.New("word padding cannot be negative")
 	}
 	return nil
 }

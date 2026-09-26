@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"image"
-	"image/color"
 	"math"
 
 	"github.com/santiagoa58/image-play/internal/imageutil"
@@ -26,9 +25,6 @@ type PlacedWord struct {
 	// Angle is the clockwise rotation in degrees. Current placement uses 0 or 90.
 	Angle int
 
-	// Color is reserved for per-word color styling. The current renderer draws
-	// words in black.
-	Color color.RGBA
 }
 
 // PlacementContext owns the mutable state for one placement run.
@@ -184,6 +180,12 @@ func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, e
 		occ.Close()
 		return nil, fmt.Errorf("find placement centers: %w", err)
 	}
+	if len(centers) == 0 {
+		safe.Close()
+		occ.Close()
+		return nil, errors.New("placement mask contains no usable centers")
+	}
+
 	return &PlacementContext{
 		space:       space,
 		safeZone:    safe,

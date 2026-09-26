@@ -2,7 +2,6 @@ package textutil
 
 import (
 	"bufio"
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,28 +9,32 @@ import (
 )
 
 const (
-	// initialScanBufferSize is the default buffer size for bufio.Scanner.
-	initialScanBufferSize = 64 * 1024 // 64 KiB
-
-	// maxScanLineSize is the maximum allowed line length when using scanner-based reading.
-	maxScanLineSize = 4 * 1024 * 1024 // 4 MiB
+	initialScanBufferSize = 64 * 1024
+	maxScanLineSize       = 4 * 1024 * 1024
 )
 
-// ResolveOutputPath determines the final output file path according to these rules:
-//   - If out is empty → {input basename}_{suffix}{ext} in the same directory as input
-//   - If out is an existing directory → {out}/{input basename}_{suffix}{ext}
-//   - Otherwise → use out as-is (after cleaning)
-func ResolveOutputPath(in, out, suffix string) (string, error) {
+// ResolveOutputPath resolves an output file using ext as the required format.
+//
+// If out is empty, the result is inputName_suffix.ext beside the input file.
+// Existing directories and paths ending in a separator are treated as output
+// directories. Explicit filenames without an extension receive ext.
+func ResolveOutputPath(in, out, suffix, ext string) (string, error) {
 	in = strings.TrimSpace(in)
 	if in == "" {
 		return "", fmt.Errorf("input path is required")
 	}
 
-	inClean := filepath.Clean(in)
+	ext = strings.TrimSpace(ext)
+	if ext == "" {
+		return "", fmt.Errorf("output extension is required")
+	}
+	if !strings.HasPrefix(ext, ".") {
+		ext = "." + ext
+	}
 
-	defaultPath, err := buildDefaultOutputPath(inClean, suffix)
+	defaultPath, err := buildDefaultOutputPath(filepath.Clean(in), suffix, ext)
 	if err != nil {
-		return "", fmt.Errorf("build default output for %q: %w", inClean, err)
+		return "", err
 	}
 
 	out = strings.TrimSpace(out)
@@ -39,27 +42,37 @@ func ResolveOutputPath(in, out, suffix string) (string, error) {
 		return defaultPath, nil
 	}
 
+	asDirectory := strings.HasSuffix(out, "/") || strings.HasSuffix(out, "\\")
 	outClean := filepath.Clean(out)
 
-	// If the user provided an existing directory, place the file inside it
-	if info, err := os.Stat(outClean); err == nil && info.IsDir() {
+	info, statErr := os.Stat(outClean)
+	switch {
+	case statErr == nil && info.IsDir():
+		asDirectory = true
+	case statErr != nil && !os.IsNotExist(statErr):
+		return "", fmt.Errorf("inspect output path %q: %w", outClean, statErr)
+	}
+
+	if asDirectory {
 		return filepath.Join(outClean, filepath.Base(defaultPath)), nil
 	}
 
-	// Otherwise treat out as the exact target file path (new or existing)
+	outputExt := filepath.Ext(outClean)
+	if outputExt == "" {
+		return outClean + ext, nil
+	}
+	if !strings.EqualFold(outputExt, ext) {
+		return "", fmt.Errorf("output file must use %s extension", ext)
+	}
+
 	return outClean, nil
 }
 
-// buildDefaultOutputPath returns inputName_suffix.ext in the same directory as input.
-func buildDefaultOutputPath(inputClean, suffix string) (string, error) {
-	ext := filepath.Ext(inputClean)
-	if ext == "" {
-		return "", fmt.Errorf("input path %q has no file extension", inputClean)
-	}
-
+func buildDefaultOutputPath(inputClean, suffix, ext string) (string, error) {
 	base := filepath.Base(inputClean)
-	name := strings.TrimSuffix(base, ext)
-	if name == "" {
+	inputExt := filepath.Ext(base)
+	name := strings.TrimSuffix(base, inputExt)
+	if strings.TrimSpace(name) == "" {
 		return "", fmt.Errorf("input path %q has no valid filename", inputClean)
 	}
 
@@ -68,29 +81,10 @@ func buildDefaultOutputPath(inputClean, suffix string) (string, error) {
 		suffix = "processed"
 	}
 
-	return filepath.Join(
-		filepath.Dir(inputClean),
-		name+"_"+suffix+ext,
-	), nil
+	return filepath.Join(filepath.Dir(inputClean), name+"_"+suffix+ext), nil
 }
 
-// ReadTextFile reads the entire file into memory and validates it is not blank.
-// This is the recommended approach for small-to-medium text files (configs, data, etc.).
-func ReadTextFile(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", fmt.Errorf("read file %q: %w", path, err)
-	}
-
-	if len(bytes.TrimSpace(data)) == 0 {
-		return "", fmt.Errorf("text file %q is empty or contains only whitespace", path)
-	}
-
-	return string(data), nil
-}
-
-// ProcessLines streams the file line by line without loading everything into memory.
-// Use this for large files or when you want to process data incrementally.
+// ProcessLines streams path line by line and calls fn for each line.
 func ProcessLines(path string, fn func(line string) error) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -104,7 +98,7 @@ func ProcessLines(path string, fn func(line string) error) error {
 	for scanner.Scan() {
 		line := scanner.Text()
 		if err := fn(line); err != nil {
-			return fmt.Errorf("processing line %q: %w", line, err)
+			return fmt.Errorf("process line %q: %w", line, err)
 		}
 	}
 

@@ -14,7 +14,7 @@ func TestMeasureWordsScalesSelectedFrequencies(t *testing.T) {
 		maxFontSize = 50.0
 	)
 
-	heap := WordHeap{
+	heap := WordCounts{
 		{Word: "high", Count: 100},
 		{Word: "middle", Count: 10},
 		{Word: "low", Count: 1},
@@ -66,7 +66,7 @@ func TestMeasureWordsScalesSelectedFrequencies(t *testing.T) {
 }
 
 func TestMeasureWordsUsesLimitedFrequencyRange(t *testing.T) {
-	heap := WordHeap{
+	heap := WordCounts{
 		{Word: "high", Count: 100},
 		{Word: "middle", Count: 10},
 		{Word: "excluded", Count: 1},
@@ -119,7 +119,7 @@ func testWordFontPath(t *testing.T) string {
 }
 
 func TestMeasureWordsOrdersEqualFrequencyByMeasuredArea(t *testing.T) {
-	heap := WordHeap{
+	heap := WordCounts{
 		{Word: "highest", Count: 10},
 		{Word: "tiny", Count: 5},
 		{Word: "considerablylonger", Count: 5},
@@ -147,5 +147,33 @@ func TestMeasureWordsOrdersEqualFrequencyByMeasuredArea(t *testing.T) {
 			words[1].Text,
 			words[2].Text,
 		)
+	}
+}
+
+func TestMeasureWordsUsesMaximumSizeWhenAllFrequenciesMatch(t *testing.T) {
+	words, err := MeasureWords(
+		WordCounts{
+			{Word: "alpha", Count: 1},
+			{Word: "considerablylonger", Count: 1},
+			{Word: "beta", Count: 1},
+		},
+		WordMeasurementConfig{
+			FontPath:    testWordFontPath(t),
+			MinFontSize: 6,
+			MaxFontSize: 40,
+			Limit:       3,
+		},
+	)
+	if err != nil {
+		t.Fatalf("MeasureWords() error = %v", err)
+	}
+
+	for _, word := range words {
+		if word.FontSize != 40 {
+			t.Errorf("word %q size = %v, want 40", word.Text, word.FontSize)
+		}
+	}
+	if words[0].Text != "considerablylonger" {
+		t.Errorf("first equal-frequency word = %q, want largest measured word", words[0].Text)
 	}
 }

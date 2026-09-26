@@ -1,8 +1,7 @@
 # image-play
 
 `image-play` is a Go image-effects playground. The active CLI currently
-generates image-shaped word clouds; the repository also contains the earlier
-text-mosaic effect.
+generates image-shaped word clouds.
 
 ## Word cloud
 
@@ -140,14 +139,15 @@ Build the CLI:
 go build -o ./bin/mosaic ./cmd/mosaic
 ```
 
+The CLI always writes PNG output. If `-out` is omitted, the output is written
+beside the input as `<input>_wordcloud.png`. Existing directories and paths
+ending in a separator are treated as output directories.
+
+CI checks formatting, `go vet`, the full test suite, and the deployable Docker
+image on pushes and pull requests.
+
 The repository Dockerfile provides the OpenCV toolchain and runtime stages used
-for container builds.
-
-## Text mosaic
-
-The earlier `internal/effects/textmosaic` effect remains in the repository. It
-recreates an image from repeated text whose character colors are sampled from
-the source image. The current CLI entrypoint is focused on the word-cloud work.
+for local and container builds.
 
 ## License
 

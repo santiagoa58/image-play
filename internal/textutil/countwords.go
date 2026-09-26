@@ -1,15 +1,14 @@
 package textutil
 
 import (
-	"container/heap"
 	"fmt"
 	"strings"
 	"unicode"
 )
 
-// CountWords counts words in a text file using streaming (low memory usage)
-// and returns a heap of word frequencies (most frequent first).
-func CountWords(txtPath string) (WordHeap, error) {
+// CountWords counts normalized words in a text file and returns their
+// frequencies. Stop words are excluded.
+func CountWords(txtPath string) (WordCounts, error) {
 	counts := make(map[string]int)
 
 	err := ProcessLines(txtPath, func(line string) error {
@@ -24,11 +23,17 @@ func CountWords(txtPath string) (WordHeap, error) {
 		return nil, fmt.Errorf("text file %q contains no words", txtPath)
 	}
 
-	return buildWordHeap(counts), nil
+	result := make(WordCounts, 0, len(counts))
+	for word, count := range counts {
+		result = append(result, WordCount{
+			Word:  word,
+			Count: count,
+		})
+	}
+
+	return result, nil
 }
 
-// countWordsInLine extracts words using Unicode rules and updates the count map.
-// It is designed to be allocation-efficient for large files.
 func countWordsInLine(line string, counts map[string]int) {
 	var word strings.Builder
 
@@ -37,10 +42,9 @@ func countWordsInLine(line string, counts map[string]int) {
 			word.WriteRune(unicode.ToLower(r))
 			continue
 		}
-		// Non-word character → flush current word
 		processWord(&word, counts)
 	}
-	// Flush any remaining word at the end of the line
+
 	processWord(&word, counts)
 }
 
@@ -49,26 +53,12 @@ func processWord(word *strings.Builder, counts map[string]int) {
 		return
 	}
 
-	w := word.String()
+	value := word.String()
 	word.Reset()
 
-	if IsStopWord(w) {
+	if IsStopWord(value) {
 		return
 	}
 
-	counts[w]++
-}
-
-func buildWordHeap(wordMap map[string]int) WordHeap {
-	h := make(WordHeap, 0, len(wordMap))
-
-	for word, count := range wordMap {
-		h = append(h, WordCount{
-			Word:  word,
-			Count: count,
-		})
-	}
-
-	heap.Init(&h)
-	return h
+	counts[value]++
 }

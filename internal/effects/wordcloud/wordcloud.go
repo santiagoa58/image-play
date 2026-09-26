@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/santiagoa58/image-play/internal/imageutil"
@@ -30,9 +32,12 @@ func Generate(cfg Config) error {
 	logger := slog.Default()
 
 	// 1. Resolve output path
-	outputPath, err := textutil.ResolveOutputPath(cfg.InputPath, cfg.OutputPath, "wordcloud")
+	outputPath, err := textutil.ResolveOutputPath(cfg.InputPath, cfg.OutputPath, "wordcloud", ".png")
 	if err != nil {
 		return fmt.Errorf("resolve output path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		return fmt.Errorf("create output directory: %w", err)
 	}
 
 	// 2. Prepare mask (binary + distance)
@@ -52,13 +57,13 @@ func Generate(cfg Config) error {
 
 	// 3. Count words from text
 	logger.Info("counting words", "path", cfg.TextPath)
-	wordHeap, err := textutil.CountWords(cfg.TextPath)
+	wordCounts, err := textutil.CountWords(cfg.TextPath)
 	if err != nil {
 		return fmt.Errorf("count words: %w", err)
 	}
 
 	// 4. Resolve an image-appropriate maximum size, then measure candidates.
-	maxFontSize, err := resolveMaxFontSize(mask, wordHeap, cfg)
+	maxFontSize, err := resolveMaxFontSize(mask, wordCounts, cfg)
 	if err != nil {
 		return fmt.Errorf("resolve maximum font size: %w", err)
 	}
@@ -70,7 +75,7 @@ func Generate(cfg Config) error {
 	)
 
 	words, err := textutil.MeasureWords(
-		wordHeap,
+		wordCounts,
 		textutil.WordMeasurementConfig{
 			FontPath:    cfg.FontPath,
 			MinFontSize: cfg.MinFontSize,
@@ -160,7 +165,10 @@ func Generate(cfg Config) error {
 
 	// 7. Render final image
 	logger.Info("rendering word cloud", "output", outputPath)
-	if err := RenderRectangles(mask.Width, mask.Height, cfg.FontPath, placed, outputPath, cfg.Debug); err != nil {
+	if len(placed) == 0 {
+		return errors.New("no words could be placed inside the image shape")
+	}
+	if err := Render(mask.Width, mask.Height, cfg.FontPath, placed, outputPath, cfg.Debug); err != nil {
 		return err
 	}
 

@@ -48,3 +48,16 @@ func TestNewConfigAllowsZeroValueOverrides(t *testing.T) {
 		t.Error("Debug = true, want false")
 	}
 }
+
+func TestConfigValidateRejectsNegativeWordPadding(t *testing.T) {
+	cfg := NewConfig(
+		WithInputPath("input.png"),
+		WithTextPath("words.txt"),
+		WithFontPath("font.ttf"),
+	)
+	cfg.WordPadding = -1
+
+	if err := cfg.Validate(); err == nil {
+		t.Fatal("Validate() error = nil, want negative padding error")
+	}
+}

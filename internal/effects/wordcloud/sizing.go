@@ -21,7 +21,7 @@ const placementStepRatio = 0.1
 // dominate the final scale.
 func resolveMaxFontSize(
 	mask *imageutil.Mask,
-	wordHeap textutil.WordHeap,
+	wordHeap textutil.WordCounts,
 	cfg Config,
 ) (float64, error) {
 	if cfg.MaxFontSize > 0 {

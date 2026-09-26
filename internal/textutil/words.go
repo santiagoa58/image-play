@@ -85,17 +85,17 @@ func Resize(w Word, f float64) (Word, error) {
 //
 // Log scaling preserves frequency hierarchy without letting a few very common
 // words consume the entire visual size range.
-func MeasureWords(h WordHeap, cfg WordMeasurementConfig) ([]Word, error) {
+func MeasureWords(h WordCounts, cfg WordMeasurementConfig) ([]Word, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	if h.Len() == 0 {
+	if len(h) == 0 {
 		return nil, nil
 	}
 
 	limit := cfg.Limit
-	if limit > h.Len() {
-		limit = h.Len()
+	if limit > len(h) {
+		limit = len(h)
 	}
 
 	// A tiny context is sufficient because gg only needs its font face for
@@ -113,12 +113,16 @@ func MeasureWords(h WordHeap, cfg WordMeasurementConfig) ([]Word, error) {
 	}
 
 	words := make([]Word, len(sortedWords))
+	equalFrequency := countRange.Min == countRange.Max
 	for i, w := range sortedWords {
-		size := mathutil.ScaleLog(
-			float64(w.Count),
-			countRange,
-			fontSizeRange,
-		)
+		size := cfg.MaxFontSize
+		if !equalFrequency {
+			size = mathutil.ScaleLog(
+				float64(w.Count),
+				countRange,
+				fontSizeRange,
+			)
+		}
 		width, height, err := measureWord(dc, w.Word, cfg.FontPath, size)
 		if err != nil {
 			return nil, fmt.Errorf("measure word: %w", err)

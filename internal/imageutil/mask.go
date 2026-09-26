@@ -10,34 +10,12 @@ import (
 
 // Mask contains a binary placement shape and its distance transform.
 type Mask struct {
-	// Binary indicates where text may be placed.
-	Binary [][]bool
-
-	// Distance stores each pixel's distance from the nearest shape boundary.
-	Distance [][]float32
-
 	Width  int
 	Height int
 
-	// BinaryMat and DistMat are retained for OpenCV operations.
+	// BinaryMat is the placeable silhouette; DistMat is its distance transform.
 	BinaryMat *gocv.Mat
 	DistMat   *gocv.Mat
-}
-
-// At reports whether (x, y) is inside the placement shape.
-func (m *Mask) At(x, y int) bool {
-	if x < 0 || y < 0 || x >= m.Width || y >= m.Height {
-		return false
-	}
-	return m.Binary[y][x]
-}
-
-// DistanceAt returns the distance from (x, y) to the nearest shape boundary.
-func (m *Mask) DistanceAt(x, y int) float32 {
-	if x < 0 || y < 0 || x >= m.Width || y >= m.Height {
-		return 0
-	}
-	return m.Distance[y][x]
 }
 
 // Close releases the OpenCV matrices owned by the mask.
@@ -50,17 +28,6 @@ func (m *Mask) Close() {
 		m.DistMat.Close()
 		m.DistMat = nil
 	}
-}
-
-// IMWrite writes img to disk.
-func IMWrite(path string, img *gocv.Mat) error {
-	if img == nil {
-		return errors.New("no image available")
-	}
-	if ok := gocv.IMWrite(path, *img); !ok {
-		return fmt.Errorf("failed to write image to %q", path)
-	}
-	return nil
 }
 
 // PrepareMask builds the placement silhouette and distance transform for an
@@ -93,14 +60,12 @@ func PrepareMask(path string, alphaThreshold uint8) (*Mask, error) {
 		return nil, fmt.Errorf("compute distance transform: %w", err)
 	}
 
-	mask, err := createMask(binary, dist)
-	if err != nil {
-		binary.Close()
-		dist.Close()
-		return nil, fmt.Errorf("create mask: %w", err)
-	}
-
-	return mask, nil
+	return &Mask{
+		Width:     binary.Cols(),
+		Height:    binary.Rows(),
+		BinaryMat: binary,
+		DistMat:   dist,
+	}, nil
 }
 
 // readImage loads an image without discarding its alpha channel.
@@ -302,47 +267,4 @@ func cleanMask(binary *gocv.Mat) error {
 	}
 
 	return nil
-}
-
-// createMask converts OpenCV matrices into the Mask representation.
-// Ownership of both matrices transfers to the returned Mask.
-func createMask(
-	binaryMat,
-	distMat *gocv.Mat,
-) (*Mask, error) {
-	width := binaryMat.Cols()
-	height := binaryMat.Rows()
-
-	binary := make([][]bool, height)
-	distance := make([][]float32, height)
-
-	binaryData, err := binaryMat.DataPtrUint8()
-	if err != nil {
-		return nil, fmt.Errorf("read binary mask data: %w", err)
-	}
-
-	distData, err := distMat.DataPtrFloat32()
-	if err != nil {
-		return nil, fmt.Errorf("read distance transform data: %w", err)
-	}
-
-	for y := range height {
-		binary[y] = make([]bool, width)
-		distance[y] = make([]float32, width)
-
-		for x := range width {
-			index := y*width + x
-			binary[y][x] = binaryData[index] > 128
-			distance[y][x] = distData[index]
-		}
-	}
-
-	return &Mask{
-		Binary:    binary,
-		Distance:  distance,
-		Width:     width,
-		Height:    height,
-		BinaryMat: binaryMat,
-		DistMat:   distMat,
-	}, nil
 }

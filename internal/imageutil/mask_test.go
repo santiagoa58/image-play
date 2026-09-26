@@ -28,11 +28,12 @@ func TestPrepareMaskExcludesTransparentLogoCorners(t *testing.T) {
 		{0, mask.Height - 1},
 		{mask.Width - 1, mask.Height - 1},
 	} {
-		if mask.At(point[0], point[1]) {
+		if got := mask.BinaryMat.GetUCharAt(point[1], point[0]); got != 0 {
 			t.Errorf(
-				"transparent corner (%d,%d) is placeable",
+				"transparent corner (%d,%d) = %d, want 0",
 				point[0],
 				point[1],
+				got,
 			)
 		}
 	}

@@ -29,7 +29,7 @@ func TestResolveMaxFontSizeUsesLayout(t *testing.T) {
 		WithFontPath(wordcloudTestFontPath(t)),
 		WithWordLimit(3),
 	)
-	heap := textutil.WordHeap{
+	heap := textutil.WordCounts{
 		{Word: "important", Count: 10},
 		{Word: "secondary", Count: 8},
 		{Word: "fallback", Count: 5},
