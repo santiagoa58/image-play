@@ -4,7 +4,11 @@ import (
 	"gocv.io/x/gocv"
 )
 
-// computeDistanceTransform runs the Euclidean distance transform.
+// ComputeDistanceTransform returns the Euclidean distance from every non-zero
+// mask pixel to the nearest zero pixel.
+//
+// Word-cloud placement uses larger values as a proxy for "roomier" interior
+// locations. The caller owns the returned matrix.
 func ComputeDistanceTransform(th gocv.Mat) (*gocv.Mat, error) {
 	dist := gocv.NewMat()
 	labels := gocv.NewMat()

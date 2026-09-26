@@ -8,6 +8,10 @@ import (
 	"github.com/santiagoa58/image-play/internal/mathutil"
 )
 
+// Word is a measured word-cloud candidate.
+//
+// FontSize is the desired or currently retried size, while Width and Height are
+// the measured rendering bounds at that exact size.
 type Word struct {
 	Text     string
 	Weight   int
@@ -18,6 +22,8 @@ type Word struct {
 }
 
 // WordMeasurementConfig controls frequency-based sizing and font measurement.
+//
+// Limit is a candidate limit, not a required number of final placements.
 type WordMeasurementConfig struct {
 	FontPath    string
 	MinFontSize float64
@@ -25,6 +31,10 @@ type WordMeasurementConfig struct {
 	Limit       int
 }
 
+// Resize returns w remeasured at font size f.
+//
+// The original word is unchanged. Resize reuses the private font path captured
+// by MeasureWords so placement code does not need to know font details.
 func Resize(w Word, f float64) (Word, error) {
 	if w.FontSize == f {
 		return w, nil
@@ -44,8 +54,11 @@ func Resize(w Word, f float64) (Word, error) {
 	}, nil
 }
 
-// MeasureWords returns the most frequent words with logarithmically scaled
-// font sizes and measured rendering bounds.
+// MeasureWords returns up to cfg.Limit candidates ordered by frequency, with
+// logarithmically scaled font sizes and measured rendering bounds.
+//
+// Log scaling preserves frequency hierarchy without letting a few very common
+// words consume the entire visual size range.
 func MeasureWords(h WordHeap, cfg WordMeasurementConfig) ([]Word, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err

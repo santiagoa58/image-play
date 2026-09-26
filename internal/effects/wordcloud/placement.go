@@ -16,15 +16,26 @@ import (
 
 var errNoPlacement = errors.New("no valid placement")
 
+// PlacedWord is the layout result consumed by the renderer.
 type PlacedWord struct {
-	Word  textutil.Word
-	X, Y  float64 // center position
+	Word textutil.Word
+
+	// X and Y are the center coordinates of the placed word.
+	X, Y float64
+
+	// Angle is the clockwise rotation in degrees. Current placement uses 0 or 90.
 	Angle int
+
+	// Color is reserved for per-word color styling. The current renderer draws
+	// words in black.
 	Color color.RGBA
 }
 
-// PlacementContext holds everything needed during placement.
-// This reduces parameter passing and makes testing easier.
+// PlacementContext owns the mutable state for one placement run.
+//
+// Artistic search policy stays here: font-size fallback, preferred angles,
+// candidate centers, and spiral traversal. Low-level mask containment and
+// collision detection are delegated to layout.Space.
 type PlacementContext struct {
 	space       *layout.Space
 	safeZone    *gocv.Mat
@@ -45,7 +56,12 @@ func (ctx *PlacementContext) Close() {
 	}
 }
 
-// Place attempts to place a word, shrinking it when its current size cannot fit.
+// Place attempts to place word, shrinking it until it fits or reaches
+// minFontSize.
+//
+// maxFontSize also preserves the visual hierarchy: callers cap each word by
+// the previously placed word's actual size, preventing a later, less-important
+// word from becoming larger after an earlier word had to shrink.
 func (ctx *PlacementContext) Place(
 	word textutil.Word,
 	maxFontSize, minFontSize, stepRatio float64,
@@ -90,6 +106,10 @@ func (ctx *PlacementContext) Place(
 
 // tryPlaceAtSize searches every configured position for the preferred angle
 // before falling back to the next angle.
+//
+// This intentionally gives horizontal text a global preference: all candidate
+// positions are exhausted at 0 degrees before the 90-degree fallback begins.
+// layout.Space.TryPlace performs and commits the geometry check atomically.
 func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, bool) {
 	for _, angle := range ctx.angles {
 		boxW := word.Width + 2*ctx.wordPadding
@@ -126,6 +146,10 @@ func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, boo
 	return PlacedWord{}, false
 }
 
+// NewPlacementContext builds the safe zone, fast layout index, search centers,
+// and debug occupancy map used to place a complete word cloud.
+//
+// The returned context owns OpenCV matrices and must be closed.
 func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, error) {
 	if len(cfg.Angles) == 0 {
 		return nil, errors.New("at least one placement angle is required")
@@ -171,8 +195,11 @@ func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, e
 	}, nil
 }
 
-// newValidationMasks creates the fixed safe zone and mutable occupancy map
-// used while placing words. The caller owns both returned matrices.
+// newValidationMasks creates the eroded safe zone and an initially empty
+// occupancy bitmap.
+//
+// The occupancy bitmap is retained for diagnostics only; layout.Space is the
+// source of truth for collision detection. The caller owns both matrices.
 func newValidationMasks(
 	mask *imageutil.Mask,
 	erodeSize int,

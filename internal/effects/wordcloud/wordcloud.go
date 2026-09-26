@@ -10,6 +10,17 @@ import (
 	"github.com/santiagoa58/image-play/internal/textutil"
 )
 
+// Generate creates a word cloud from cfg and writes the final PNG.
+//
+// The pipeline is intentionally split into policy and mechanics:
+//   - imageutil derives the silhouette and distance transform;
+//   - textutil counts, sizes, and measures candidate words;
+//   - this package chooses centers, sizes, orientations, and search order;
+//   - layout.Space performs fast mask-containment and collision checks;
+//   - the renderer draws the accepted layout.
+//
+// A candidate that cannot fit at the minimum size is skipped; WordLimit is a
+// source pool, not a required placement count.
 func Generate(cfg Config) error {
 	if err := cfg.Validate(); err != nil {
 		return fmt.Errorf("validate config: %w", err)

@@ -1,8 +1,3 @@
-// Package layout contains the low-level geometry used by word placement.
-//
-// It deliberately keeps artistic policy out. The summed-area mask follows the
-// integral-image approach used by amueller/word_cloud, while dynamic collision
-// lookup follows the spatial-hash approach used by psykhi/wordclouds.
 package layout
 
 import (
@@ -11,8 +6,13 @@ import (
 )
 
 const (
+	// minimumSpatialCellSize avoids creating extremely fine grids for tiny
+	// images, where the map overhead would outweigh the collision savings.
 	minimumSpatialCellSize = 8
-	targetCellsPerAxis      = 40
+
+	// targetCellsPerAxis keeps spatial-hash cells roughly proportional to the
+	// canvas size instead of relying on one magic pixel size for every image.
+	targetCellsPerAxis = 40
 )
 
 // Space tracks where rectangular items may be placed.
@@ -60,11 +60,16 @@ func (s *Space) TryPlace(rect image.Rectangle) bool {
 	return true
 }
 
+// integralMask is a summed-area table over the static allowed-pixel mask.
 type integralMask struct {
+	// stride is width+1 because the table includes an empty top row and left
+	// column. That padding keeps rectangle-sum queries branch-free.
 	stride int
 	sums   []int
 }
 
+// newIntegralMask preprocesses the mask once so Contains can answer a
+// rectangle-containment query in constant time.
 func newIntegralMask(width, height int, pixels []uint8) *integralMask {
 	stride := width + 1
 	sums := make([]int, (height+1)*stride)
@@ -85,6 +90,11 @@ func newIntegralMask(width, height int, pixels []uint8) *integralMask {
 	}
 }
 
+// Contains reports whether every pixel in rect is allowed.
+//
+// The four table lookups are the standard summed-area-table inclusion/
+// exclusion formula. Comparing the sum with rect's area works because each
+// allowed pixel contributes exactly one to the table.
 func (m *integralMask) Contains(rect image.Rectangle) bool {
 	x0, y0 := rect.Min.X, rect.Min.Y
 	x1, y1 := rect.Max.X, rect.Max.Y
@@ -97,17 +107,22 @@ func (m *integralMask) Contains(rect image.Rectangle) bool {
 	return sum == rect.Dx()*rect.Dy()
 }
 
+// gridCell identifies one bucket in the spatial hash.
 type gridCell struct {
 	x int
 	y int
 }
 
+// spatialIndex partitions the canvas into coarse cells and indexes each
+// occupied rectangle into every cell it touches. Candidate rectangles only
+// need to compare themselves with rectangles from their nearby cells.
 type spatialIndex struct {
 	cellSize int
 	cells    map[gridCell][]int
 	rects    []image.Rectangle
 }
 
+// newSpatialIndex creates an empty collision index using square cells.
 func newSpatialIndex(cellSize int) *spatialIndex {
 	return &spatialIndex{
 		cellSize: cellSize,
@@ -115,6 +130,7 @@ func newSpatialIndex(cellSize int) *spatialIndex {
 	}
 }
 
+// Add records rect in the index after a successful placement.
 func (s *spatialIndex) Add(rect image.Rectangle) {
 	id := len(s.rects)
 	s.rects = append(s.rects, rect)
@@ -128,6 +144,10 @@ func (s *spatialIndex) Add(rect image.Rectangle) {
 	}
 }
 
+// Overlaps reports whether rect intersects an already occupied rectangle.
+//
+// A rectangle can appear in more than one bucket. Duplicate checks are harmless
+// because this method returns on the first actual intersection.
 func (s *spatialIndex) Overlaps(rect image.Rectangle) bool {
 	minX, maxX, minY, maxY := s.cellRange(rect)
 	for y := minY; y <= maxY; y++ {
@@ -143,6 +163,8 @@ func (s *spatialIndex) Overlaps(rect image.Rectangle) bool {
 	return false
 }
 
+// cellRange maps a pixel rectangle to the inclusive range of spatial-hash
+// cells it touches. Max is exclusive for image.Rectangle, hence the -1.
 func (s *spatialIndex) cellRange(rect image.Rectangle) (minX, maxX, minY, maxY int) {
 	minX = rect.Min.X / s.cellSize
 	maxX = (rect.Max.X - 1) / s.cellSize

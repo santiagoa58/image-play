@@ -1,548 +1,149 @@
 # image-play
 
-`image-play` is a Go image effects toolkit.
+`image-play` is a Go image-effects playground. The active CLI currently
+generates image-shaped word clouds; the repository also contains the earlier
+text-mosaic effect.
 
-The current CLI generates text mosaics: images recreated from repeated text, with each character colored from the source image. The effect writes to a transparent canvas, supports resizing and basic image adjustments, and accepts text from either a command-line flag or a text file.
+## Word cloud
 
----
-
-## Example Output
-
-<table>
-  <tr>
-    <th>Input Image</th>
-    <th>Generated Text Mosaic</th>
-  </tr>
-  <tr>
-    <td>
-      <img src="docs/assets/input_img.jpg" width="350" alt="Input image used for text mosaic">
-    </td>
-    <td>
-      <img src="docs/assets/generated_text_mosaic.png" width="350" alt="Generated text mosaic output">
-    </td>
-  </tr>
-</table>
-
-Generated with:
+The word-cloud pipeline turns a source image into a placement silhouette, sizes
+words by frequency, then packs those words inside the silhouette.
 
 ```bash
-./bin/mosaic \
-  -in testdata/images/couple_tour.jpg \
-  -font fonts/NotoSansMono-VariableFont_wdth,wght.ttf \
-  -text-file testdata/text/sample_text_message.txt \
-  -out results/ \
-  -width 1080 \
-  -v
+go run ./cmd/mosaic \
+  -in testdata/images/deepseek-logo-icon.png \
+  -text testdata/text/sample_text_message.txt \
+  -font "fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+  -out output.png
 ```
 
----
+Current defaults include horizontal-first 0/90-degree placement, logarithmic
+frequency scaling, rectangular word footprints, and up to 500 candidate words.
+The candidate limit is a source pool: words that cannot fit at the minimum font
+size are skipped.
 
-## Features
+### Pipeline
 
-- Generate text mosaic images from source images
-- Draw output on a transparent canvas
-- Sample source image colors per text character
-- Resize output by target width
-- Convert source image to black and white before sampling
-- Adjust source image contrast before sampling
-- Use inline text or a UTF-8 text file
-- Resolve flexible output paths for files and directories
-- Create missing output directories when enabled
-- Preserve original image size when `-width` is `0`
-
----
-
-## Project Structure
-
-```txt
-image-play/
-├── cmd/
-│   └── mosaic/
-│       └── main.go
-├── docs/
-│   └── assets/
-│       ├── input_img.jpg
-│       └── generated_text_mosaic.png
-├── fonts/
-│   └── NotoSansMono-VariableFont_wdth,wght.ttf
-├── internal/
-│   ├── effects/
-│   │   └── textmosaic/
-│   │       ├── textmosaic.go
-│   │       └── textmosaic_test.go
-│   └── util/
-│       ├── fileutils.go
-│       └── fileutils_test.go
-├── testdata/
-│   ├── images/
-│   │   └── couple_tour.jpg
-│   └── text/
-│       └── sample_text_message.txt
-└── README.md
+```text
+source image
+    ↓
+binary silhouette + distance transform
+    ↓
+word counts + measured target font sizes
+    ↓
+distance-based placement centers
+    ↓
+spiral candidate positions
+    ↓
+layout.Space.TryPlace(rect)
+    ↓
+accepted PlacedWord values
+    ↓
+PNG renderer
 ```
 
----
+The main package boundaries are:
 
-## Requirements
+- `internal/imageutil`: image loading, alpha-aware segmentation, morphology,
+  and distance transforms.
+- `internal/textutil`: tokenization, stop-word filtering, frequency counting,
+  font-size scaling, and word measurement.
+- `internal/effects/wordcloud`: artistic layout policy: center selection,
+  horizontal/vertical preference, spiral search, resizing, progress, and
+  rendering.
+- `internal/layout`: generic rectangle containment and collision geometry.
+- `internal/mathutil`: small deterministic geometry and scaling helpers.
+
+## Placement geometry
+
+The low-level geometry is deliberately isolated in `internal/layout`. The
+word-cloud package decides *where* and *how* to try a word; `layout.Space`
+only decides whether that rectangular footprint is valid and reserves it on
+success.
+
+Two mature word-cloud implementations informed this design:
+
+1. **amueller/word_cloud** (Python, MIT license) uses an integral/summed-area
+   occupancy image to make rectangle-space queries cheap.
+   - https://github.com/amueller/word_cloud
+   - https://github.com/amueller/word_cloud/blob/master/wordcloud/wordcloud.py
+   - https://github.com/amueller/word_cloud/blob/master/wordcloud/query_integral_image.pyx
+
+2. **psykhi/wordclouds** (Go, Apache-2.0 license) uses a spatial hash so
+   collision tests only inspect nearby placed rectangles.
+   - https://github.com/psykhi/wordclouds
+   - https://github.com/psykhi/wordclouds/blob/master/spatialhashmap.go
+
+`image-play` combines those ideas rather than importing either complete
+layout engine. The static silhouette uses a summed-area mask for constant-time
+rectangle containment checks; dynamic occupied rectangles use a spatial index
+for local collision checks. The implementation is adapted to Go's
+`image.Rectangle`, our alpha-aware mask semantics, and our existing artistic
+placement policy.
+
+This attribution documents the algorithmic references used while designing the
+implementation. The source files in `internal/layout` contain the same
+references next to the code.
+
+## Placement behavior
+
+Words are processed in frequency order. Their initial font sizes are
+logarithmically mapped into the configured font-size range. If a word cannot
+fit, placement retries it at progressively smaller sizes down to the configured
+minimum.
+
+The maximum starting size for each new word is capped by the previous
+successfully placed word's actual size. This keeps rendered sizes
+non-increasing even when an important word had to shrink to fit.
+
+For each size, placement searches every configured position horizontally before
+falling back to 90-degree rotation. Search origins come from deep points in the
+distance transform so large words start in roomy parts of the silhouette.
+
+## Debugging
+
+Set `Debug` in the word-cloud configuration to write intermediate images for:
+
+- the binary mask,
+- the distance transform,
+- placement centers,
+- the eroded safe zone,
+- occupied rectangles,
+- and the final rendered cloud.
+
+Normal generation logs the prepared, placed, skipped, horizontal, and vertical
+word counts plus placement and total latency.
+
+## Development
+
+Requirements:
 
 - Go 1.26.3+
-- OpenCV 4 development files (`libopencv-dev` on Debian, included in the devcontainer)
-- A monospace `.ttf` or `.otf` font
-- An input image such as `.jpg` or `.png`
+- OpenCV development/runtime libraries for GoCV
+- a TTF or OTF font
 
-The repo includes a test font:
-
-```txt
-fonts/NotoSansMono-VariableFont_wdth,wght.ttf
-```
-
----
-
-## Build
-
-From the repo root:
-
-The devcontainer uses the `toolchain` stage of the root `Dockerfile`. Its
-features add a non-root `dev` user and a Docker CLI connected to the host Docker
-daemon, so image builds can run inside the devcontainer without a nested daemon.
-Rebuild the devcontainer after changing the Dockerfile or devcontainer config.
-For a local Debian installation, install `libopencv-dev` before building.
-
-```bash
-go build -o ./bin/mosaic ./cmd/mosaic
-```
-
-Show help:
-
-```bash
-./bin/mosaic -h
-```
-
-Build the deployable CLI image from the same Dockerfile:
-
-```bash
-docker build --target runtime -t image-play:mosaic .
-```
-
-The `toolchain` and `compile` stages have OpenCV headers for GoCV. The
-`runtime` stage contains the compiled CLI and OpenCV shared libraries, without
-the Go toolchain. The image runs as a non-root user. To run it locally, mount
-input files and a writable output directory, then pass container paths to the
-CLI.
-When running `docker run` from inside the devcontainer, bind mount source paths
-must refer to paths on the Docker host.
-
-This CLI currently reads and writes local files and exits, so it fits a Cloud
-Run Job. Build a `linux/amd64` image for Cloud Run:
-
-```bash
-docker buildx build --platform linux/amd64 --target runtime \
-  -t REGION-docker.pkg.dev/PROJECT/REPOSITORY/image-play:TAG --push .
-```
-
-The input image, text file, font, and output path need mounted storage or an
-application storage integration. Cloud Run Jobs can mount Cloud Storage buckets
-as volumes; the current CLI does not read `gs://` paths directly. A Cloud Run
-service would also need an HTTP entrypoint that listens on `PORT`.
-
----
-
-## CLI Usage
-
-### Generate from a text file
-
-```bash
-./bin/mosaic \
-  -in testdata/images/couple_tour.jpg \
-  -font fonts/NotoSansMono-VariableFont_wdth,wght.ttf \
-  -text-file testdata/text/sample_text_message.txt \
-  -out output.png \
-  -width 1080
-```
-
-### Generate from inline text
-
-```bash
-./bin/mosaic \
-  -in testdata/images/couple_tour.jpg \
-  -font fonts/NotoSansMono-VariableFont_wdth,wght.ttf \
-  -text "Hello from the text mosaic generator. Привет мир." \
-  -out inline-test.png \
-  -width 1080
-```
-
-### Enable debug logging
-
-```bash
-./bin/mosaic \
-  -in testdata/images/couple_tour.jpg \
-  -font fonts/NotoSansMono-VariableFont_wdth,wght.ttf \
-  -text-file testdata/text/sample_text_message.txt \
-  -out output.png \
-  -width 1080 \
-  -v
-```
-
----
-
-## CLI Flags
-
-```txt
--bw
-      Convert source image to black and white before sampling
-
--contrast float
-      Contrast adjustment percent.
-      0 = no change
-      20 = increase contrast by 20%
-
--create-dirs
-      Create missing output directories
-      Default: true
-
--font string
-      Path to monospace TTF/OTF font
-      Required
-
--font-size float
-      Base font size before automatic scaling.
-      0 = default
-
--in string
-      Path to input image
-      Required
-
--out string
-      Output path. Can be a file or directory.
-      Empty = input_mosaic.png
-
--overwrite
-      Allow overwriting an existing output file
-      Default: true
-
--text string
-      Text to repeat across the mosaic
-
--text-file string
-      Path to UTF-8 text file to use as mosaic text
-
--v
-      Enable verbose/debug logging
-
--width int
-      Target width in pixels.
-      Common: 1080, 1920, 3840.
-      0 = original size
-```
-
----
-
-## Output Path Behavior
-
-The CLI supports flexible output paths.
-
-Assuming the input image is:
-
-```txt
-couple_tour.jpg
-```
-
-### Explicit output file
-
-```bash
--out output.png
-```
-
-Produces:
-
-```txt
-output.png
-```
-
-### Output filename without extension
-
-```bash
--out result
-```
-
-Produces:
-
-```txt
-result.png
-```
-
-### Output directory with trailing slash
-
-```bash
--out results/
-```
-
-Produces:
-
-```txt
-results/couple_tour_mosaic.png
-```
-
-### Existing output directory without trailing slash
-
-```bash
--out existing-results
-```
-
-If `existing-results` already exists as a directory, produces:
-
-```txt
-existing-results/couple_tour_mosaic.png
-```
-
-### No output path
-
-If `-out` is omitted, produces:
-
-```txt
-couple_tour_mosaic.png
-```
-
----
-
-# Effects
-
-Each image effect should have its own section here.
-
----
-
-## Text Mosaic
-
-The text mosaic effect generates an image made entirely from repeated text.
-
-The source image is used for color sampling, but the original image is not drawn directly into the output. The final output contains text pixels on a transparent background.
-
-### How it works
-
-1. Load the source image.
-2. Optionally resize it.
-3. Optionally adjust contrast.
-4. Optionally convert it to grayscale.
-5. Create a transparent output canvas.
-6. Measure the selected monospace font.
-7. Draw repeated text across a grid.
-8. Sample the source image color at each grid point.
-9. Draw each character using the sampled color.
-
-### Text behavior
-
-The text sequence advances only when a visible character is drawn. Transparent source pixels are skipped without consuming a character. This keeps the visible text more continuous and readable.
-
-### Unicode support
-
-The text mosaic effect indexes text using Go runes, not raw bytes.
-
-Supported well:
-
-- ASCII
-- English
-- accented Latin text
-- Cyrillic
-- Greek
-- similar basic Unicode letters
-
-Not currently supported:
-
-- emoji
-- complex grapheme clusters
-- scripts requiring advanced shaping
-- text where single-codepoint rendering is not enough
-
-For best visual alignment, use a monospace font and text that renders consistently in that font.
-
-### Examples
-
-#### Standard 1080px output
-
-```bash
-./bin/mosaic \
-  -in testdata/images/couple_tour.jpg \
-  -font fonts/NotoSansMono-VariableFont_wdth,wght.ttf \
-  -text-file testdata/text/sample_text_message.txt \
-  -out output.png \
-  -width 1080
-```
-
-#### Black-and-white output
-
-```bash
-./bin/mosaic \
-  -in testdata/images/couple_tour.jpg \
-  -font fonts/NotoSansMono-VariableFont_wdth,wght.ttf \
-  -text-file testdata/text/sample_text_message.txt \
-  -out bw-test.png \
-  -width 1080 \
-  -bw
-```
-
-#### Increased contrast
-
-```bash
-./bin/mosaic \
-  -in testdata/images/couple_tour.jpg \
-  -font fonts/NotoSansMono-VariableFont_wdth,wght.ttf \
-  -text-file testdata/text/sample_text_message.txt \
-  -out contrast-test.png \
-  -width 1080 \
-  -contrast 25
-```
-
-#### Custom base font size
-
-```bash
-./bin/mosaic \
-  -in testdata/images/couple_tour.jpg \
-  -font fonts/NotoSansMono-VariableFont_wdth,wght.ttf \
-  -text-file testdata/text/sample_text_message.txt \
-  -out font-size-test.png \
-  -width 1080 \
-  -font-size 10
-```
-
-#### 4K output
-
-```bash
-./bin/mosaic \
-  -in testdata/images/couple_tour.jpg \
-  -font fonts/NotoSansMono-VariableFont_wdth,wght.ttf \
-  -text-file testdata/text/sample_text_message.txt \
-  -out 4k-test.png \
-  -width 3840
-```
-
----
-
-# Development
-
-## Format
-
-```bash
-gofmt -w \
-  internal/util/fileutils.go \
-  internal/util/fileutils_test.go \
-  internal/effects/textmosaic/textmosaic.go \
-  internal/effects/textmosaic/textmosaic_test.go \
-  cmd/mosaic/main.go
-```
-
-## Test
-
-Run all tests:
+Run the test suite:
 
 ```bash
 go test ./...
 ```
 
-Run verbose tests:
-
-```bash
-go test -v ./...
-```
-
-Run utility tests:
-
-```bash
-go test -v ./internal/util
-```
-
-Run text mosaic tests:
-
-```bash
-go test -v ./internal/effects/textmosaic
-```
-
-## Build
+Build the CLI:
 
 ```bash
 go build -o ./bin/mosaic ./cmd/mosaic
 ```
 
-## Full local check
+The repository Dockerfile provides the OpenCV toolchain and runtime stages used
+for container builds.
 
-```bash
-gofmt -w \
-  internal/util/fileutils.go \
-  internal/util/fileutils_test.go \
-  internal/effects/textmosaic/textmosaic.go \
-  internal/effects/textmosaic/textmosaic_test.go \
-  cmd/mosaic/main.go && \
-go test ./... && \
-go build -o ./bin/mosaic ./cmd/mosaic && \
-./bin/mosaic \
-  -in testdata/images/couple_tour.jpg \
-  -font fonts/NotoSansMono-VariableFont_wdth,wght.ttf \
-  -text-file testdata/text/sample_text_message.txt \
-  -out results/ \
-  -width 1080 \
-  -v
-```
+## Text mosaic
 
-## Cleanup generated files
+The earlier `internal/effects/textmosaic` effect remains in the repository. It
+recreates an image from repeated text whose character colors are sampled from
+the source image. The current CLI entrypoint is focused on the word-cloud work.
 
-```bash
-rm -rf \
-  bin \
-  output.png \
-  result.png \
-  couple_tour_mosaic.png \
-  inline-test.png \
-  bw-test.png \
-  contrast-test.png \
-  font-size-test.png \
-  4k-test.png \
-  go-run-test.png \
-  results \
-  existing-results
-```
-
----
-
-# Adding More Effects
-
-When adding another effect:
-
-1. Add the effect implementation under `internal/effects/<effect-name>/`.
-2. Add tests next to the effect implementation.
-3. Add CLI support under `cmd/` or a shared app layer.
-4. Add a new section under `# Effects`.
-5. Add one or two example commands.
-6. Add documentation images under `docs/assets/` only when useful.
-
-Suggested structure:
-
-```txt
-internal/
-├── effects/
-│   ├── textmosaic/
-│   ├── blur/
-│   ├── pixelate/
-│   └── ...
-├── util/
-└── app/
-```
-
----
-
-# Design Notes
-
-Effect packages should stay focused on image processing.
-
-File paths, CLI flags, output naming, and filesystem behavior should stay outside effect packages. This keeps the core image effects easier to test and reuse.
-
-Current separation:
-
-- `cmd/mosaic` handles CLI input and orchestration.
-- `internal/util` handles file path utilities.
-- `internal/effects/textmosaic` handles text mosaic generation.
-
----
-
-# License
+## License
 
 MIT License. See [LICENSE](LICENSE).
 

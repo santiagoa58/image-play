@@ -9,11 +9,21 @@ import (
 	"gocv.io/x/gocv"
 )
 
+// Center is a promising origin for word-placement searches.
+//
+// Depth is the distance-transform value at Point: larger values are farther
+// from the shape boundary and therefore tend to have more room around them.
 type Center struct {
 	Point image.Point
 	Depth float32
 }
 
+// FindCenters extracts well-spaced, deep points from the mask's distance
+// transform.
+//
+// The deepest remaining point is selected, then a circular neighborhood around
+// it is suppressed before selecting the next point. This spreads search origins
+// across the silhouette instead of clustering them in one roomy region.
 func FindCenters(m *imageutil.Mask, cfg Config) ([]Center, error) {
 	if err := validate(m, cfg); err != nil {
 		return nil, err

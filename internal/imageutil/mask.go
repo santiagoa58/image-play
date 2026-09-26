@@ -63,8 +63,18 @@ func IMWrite(path string, img *gocv.Mat) error {
 	return nil
 }
 
-// PrepareMask builds the placement mask and distance transform for an image.
-// Dark visible pixels become placeable; transparent pixels are excluded.
+// PrepareMask builds the placement silhouette and distance transform for an
+// image.
+//
+// The current segmentation is intentionally simple and deterministic:
+//   - preserve alpha when loading;
+//   - convert visible pixels to luminance;
+//   - use inverse Otsu thresholding so darker subject pixels become placeable;
+//   - clean small artifacts with morphological open/close operations;
+//   - reapply alpha so transparent pixels can never become placeable;
+//   - compute a Euclidean distance transform for placement-center discovery.
+//
+// The caller owns the returned Mask and must close it.
 func PrepareMask(path string, alphaThreshold uint8) (*Mask, error) {
 	img, err := readImage(path)
 	if err != nil {

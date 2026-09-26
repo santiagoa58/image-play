@@ -8,6 +8,11 @@ import (
 	"github.com/fogleman/gg"
 )
 
+// RenderRectangles draws the accepted word layout to a PNG.
+//
+// Placement uses rectangular footprints, hence the historical name. Rendering
+// itself draws real glyphs centered at each PlacedWord position and applies the
+// selected 0/90-degree rotation.
 func RenderRectangles(
 	width, height int,
 	fontPath string,

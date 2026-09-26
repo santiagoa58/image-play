@@ -6,6 +6,11 @@ import (
 	"gocv.io/x/gocv"
 )
 
+// ImageFields groups image representations used by effects that separate
+// source color, segmentation, placement, and distance information.
+//
+// Not every effect needs every field; nil matrices are allowed where noted by
+// the effect using the struct.
 type ImageFields struct {
 	Color     *gocv.Mat // original BGR/BGRA pixels
 	Luminance *gocv.Mat // optional tonal/detail field
@@ -14,6 +19,7 @@ type ImageFields struct {
 	Distance  *gocv.Mat // distance inside Placement or Subject
 }
 
+// SampleColor reads a BGR pixel from img and converts it to Go's RGBA order.
 func SampleColor(img gocv.Mat, x, y int) color.RGBA {
 	p := img.GetVecbAt(x, y)
 	return color.RGBA{

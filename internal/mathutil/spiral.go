@@ -53,7 +53,9 @@ func ShapeAwareStep(x, y, angle, radiusGrowth, angleSpeed, gradientWeight float6
 	return newX, newY, newAngle
 }
 
-// generateSpiralPosition returns a candidate center point along an Archimedean spiral.
+// GenerateSpiralPosition returns a candidate center along the deterministic
+// Archimedean spiral used by word placement. attempt zero returns center
+// exactly; later attempts move progressively outward.
 func GenerateSpiralPosition(center image.Point, attempt int) (x, y float64) {
 	theta := float64(attempt) * 0.35
 	r := 3.0 * float64(attempt) * 0.08

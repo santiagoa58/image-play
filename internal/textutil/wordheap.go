@@ -6,11 +6,14 @@ import (
 	"strings"
 )
 
+// WordCount pairs a normalized token with its observed frequency.
 type WordCount struct {
 	Word  string
 	Count int
 }
 
+// WordHeap implements heap.Interface with higher-frequency words ordered
+// before lower-frequency words.
 type WordHeap []WordCount
 
 func (h WordHeap) Len() int { return len(h) }
@@ -59,6 +62,7 @@ func (h WordHeap) String() string {
 	return b.String()
 }
 
+// Top returns the highest-priority heap element, or the zero value when empty.
 func (h WordHeap) Top() WordCount {
 	if len(h) == 0 {
 		return WordCount{}

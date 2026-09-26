@@ -5,25 +5,50 @@ import (
 	"strings"
 )
 
+// Config controls word-cloud generation.
+//
+// Defaults are provided by NewConfig. Most callers only need to supply the
+// input image, text file, font, and optional output path.
 type Config struct {
-	InputPath  string
+	// InputPath is the source image used to derive the placement silhouette.
+	InputPath string
+	// OutputPath is the target PNG. When empty, Generate derives one from InputPath.
 	OutputPath string
-	TextPath   string
-	FontPath   string
+	// TextPath is the UTF-8 text source whose word frequencies drive the cloud.
+	TextPath string
+	// FontPath points to the TTF/OTF font used for measurement and rendering.
+	FontPath string
 
+	// MinFontSize is the smallest size placement is allowed to try.
 	MinFontSize float64
+	// MaxFontSize is the initial upper bound for the most important words.
 	MaxFontSize float64
-	WordLimit   int
+	// WordLimit is the maximum number of candidate words considered. It is not
+	// a promise that every candidate will be placed.
+	WordLimit int
 
-	SpiralStepsPerCenter    int
-	MinCenterDepthRatio     float64
+	// SpiralStepsPerCenter limits how many spiral positions are sampled around
+	// each placement center for one orientation and font size.
+	SpiralStepsPerCenter int
+	// MinCenterDepthRatio discards candidate centers shallower than this
+	// fraction of the maximum distance-transform depth.
+	MinCenterDepthRatio float64
+	// CenterSuppressionRadius controls spacing between candidate centers. Zero
+	// selects an image-size-dependent default.
 	CenterSuppressionRadius int
-	SafeZoneErodeSize       int
+	// SafeZoneErodeSize shrinks the binary mask before placement so rendered
+	// words have a small safety margin from the silhouette edge. It must be odd.
+	SafeZoneErodeSize int
 
+	// AlphaThreshold treats source pixels at or below this alpha as invisible.
 	AlphaThreshold uint8
-	WordPadding    int
-	Angles         []int // degrees; initially 0 and 90
+	// WordPadding expands each rectangular footprint before collision checks.
+	WordPadding int
+	// Angles lists allowed clockwise rotations in preference order. Placement
+	// currently supports 0 and 90 degrees.
+	Angles []int
 
+	// Debug writes intermediate mask, distance, center, occupancy, and output images.
 	Debug bool
 }
 
@@ -91,39 +116,51 @@ func (cfg Config) Validate() error {
 	return nil
 }
 
+// WithInputPath sets the source image path.
 func WithInputPath(path string) Option  { return func(cfg *Config) { cfg.InputPath = path } }
+// WithOutputPath sets the output image path.
 func WithOutputPath(path string) Option { return func(cfg *Config) { cfg.OutputPath = path } }
+// WithTextPath sets the text source path.
 func WithTextPath(path string) Option   { return func(cfg *Config) { cfg.TextPath = path } }
+// WithFontPath sets the TTF/OTF font path.
 func WithFontPath(path string) Option   { return func(cfg *Config) { cfg.FontPath = path } }
 
+// WithMinFontSize sets the minimum placement font size.
 func WithMinFontSize(size float64) Option {
 	return func(cfg *Config) { cfg.MinFontSize = size }
 }
 
+// WithMaxFontSize sets the maximum initial font size.
 func WithMaxFontSize(size float64) Option {
 	return func(cfg *Config) { cfg.MaxFontSize = size }
 }
 
+// WithWordLimit sets the maximum number of candidate words.
 func WithWordLimit(limit int) Option {
 	return func(cfg *Config) { cfg.WordLimit = limit }
 }
 
+// WithMaxAttemptsPerCenter sets the number of spiral samples per center.
 func WithMaxAttemptsPerCenter(attempts int) Option {
 	return func(cfg *Config) { cfg.SpiralStepsPerCenter = attempts }
 }
 
+// WithMinCenterDepthRatio sets the minimum relative depth for search centers.
 func WithMinCenterDepthRatio(ratio float64) Option {
 	return func(cfg *Config) { cfg.MinCenterDepthRatio = ratio }
 }
 
+// WithCenterSuppressionRadius sets center spacing; zero keeps automatic spacing.
 func WithCenterSuppressionRadius(radius int) Option {
 	return func(cfg *Config) { cfg.CenterSuppressionRadius = radius }
 }
 
+// WithSafeZoneErodeSize sets the odd-kernel erosion size for the placement mask.
 func WithSafeZoneErodeSize(size int) Option {
 	return func(cfg *Config) { cfg.SafeZoneErodeSize = size }
 }
 
+// WithDebug enables or disables intermediate diagnostic images.
 func WithDebug(debug bool) Option {
 	return func(cfg *Config) { cfg.Debug = debug }
 }
