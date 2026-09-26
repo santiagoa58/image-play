@@ -56,22 +56,3 @@ func BenchmarkGradient(b *testing.B) {
 	}
 	benchmarkFloat64Sink = dx + dy
 }
-
-func BenchmarkShapeAwareStep(b *testing.B) {
-	b.ReportAllocs()
-
-	var x, y, angle float64
-	for i := 0; b.Loop(); i++ {
-		x, y, angle = ShapeAwareStep(
-			x,
-			y,
-			angle,
-			0.7,
-			1.2,
-			0.45,
-			float64((i&7)-3),
-			float64(((i>>3)&7)-3),
-		)
-	}
-	benchmarkFloat64Sink = x + y + angle
-}
