@@ -8,6 +8,7 @@ import (
 	"math"
 
 	"github.com/santiagoa58/image-play/internal/imageutil"
+	"github.com/santiagoa58/image-play/internal/layout"
 	"github.com/santiagoa58/image-play/internal/mathutil"
 	"github.com/santiagoa58/image-play/internal/textutil"
 	"gocv.io/x/gocv"
@@ -25,6 +26,7 @@ type PlacedWord struct {
 // PlacementContext holds everything needed during placement.
 // This reduces parameter passing and makes testing easier.
 type PlacementContext struct {
+	space       *layout.Space
 	safeZone    *gocv.Mat
 	occupancy   *gocv.Mat
 	centers     []Center
@@ -89,8 +91,6 @@ func (ctx *PlacementContext) Place(
 // tryPlaceAtSize searches every configured position for the preferred angle
 // before falling back to the next angle.
 func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, bool) {
-	imageBounds := image.Rect(0, 0, ctx.safeZone.Cols(), ctx.safeZone.Rows())
-
 	for _, angle := range ctx.angles {
 		boxW := word.Width + 2*ctx.wordPadding
 		boxH := word.Height + 2*ctx.wordPadding
@@ -103,24 +103,12 @@ func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, boo
 				cx, cy := mathutil.GenerateSpiralPosition(center.Point, attempt)
 				rect := mathutil.CenteredRect(cx, cy, boxW, boxH)
 
-				if !rect.In(imageBounds) {
+				if !ctx.space.TryPlace(rect) {
 					continue
 				}
 
-				safeROI := ctx.safeZone.Region(rect)
-				isSafe := gocv.CountNonZero(safeROI) == rect.Dx()*rect.Dy()
-				safeROI.Close()
-				if !isSafe {
-					continue
-				}
-
-				occROI := ctx.occupancy.Region(rect)
-				isFree := gocv.CountNonZero(occROI) == 0
-				occROI.Close()
-				if !isFree {
-					continue
-				}
-
+				// Retain a bitmap occupancy map for optional debug output. Placement
+				// itself is handled by layout.Space.
 				occupiedROI := ctx.occupancy.Region(rect)
 				occupiedROI.SetTo(gocv.NewScalar(255, 0, 0, 0))
 				occupiedROI.Close()
@@ -152,6 +140,20 @@ func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, e
 	if err != nil {
 		return nil, fmt.Errorf("failed to prepare masks for placement: %w", err)
 	}
+
+	safePixels, err := safe.DataPtrUint8()
+	if err != nil {
+		safe.Close()
+		occ.Close()
+		return nil, fmt.Errorf("read safe-zone pixels: %w", err)
+	}
+	space, err := layout.NewSpace(safe.Cols(), safe.Rows(), safePixels)
+	if err != nil {
+		safe.Close()
+		occ.Close()
+		return nil, fmt.Errorf("create layout space: %w", err)
+	}
+
 	centers, err := FindCenters(mask, cfg)
 	if err != nil {
 		safe.Close()
@@ -159,6 +161,7 @@ func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, e
 		return nil, fmt.Errorf("find placement centers: %w", err)
 	}
 	return &PlacementContext{
+		space:       space,
 		safeZone:    safe,
 		occupancy:   occ,
 		centers:     centers,

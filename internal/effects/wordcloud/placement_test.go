@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/santiagoa58/image-play/internal/imageutil"
+	"github.com/santiagoa58/image-play/internal/layout"
 	"github.com/santiagoa58/image-play/internal/textutil"
 	"gocv.io/x/gocv"
 )
@@ -103,15 +104,11 @@ func TestRectanglePlacementSearchesHorizontalBeforeVertical(t *testing.T) {
 		0,
 	)
 	ctx.angles = []int{0, 90}
-	ctx.safeZone.SetTo(gocv.NewScalar(0, 0, 0, 0))
 
-	verticalSlot := ctx.safeZone.Region(image.Rect(21, 30, 29, 70))
-	verticalSlot.SetTo(gocv.NewScalar(255, 0, 0, 0))
-	verticalSlot.Close()
-
-	horizontalSlot := ctx.safeZone.Region(image.Rect(55, 46, 95, 54))
-	horizontalSlot.SetTo(gocv.NewScalar(255, 0, 0, 0))
-	horizontalSlot.Close()
+	resetPlacementSafeZone(t, ctx, []image.Rectangle{
+		image.Rect(21, 30, 29, 70),
+		image.Rect(55, 46, 95, 54),
+	})
 
 	placed, ok := ctx.tryPlaceAtSize(testWord(30, 6))
 	if !ok {
@@ -334,12 +331,26 @@ func newPlacementTestContext(
 		gocv.MatTypeCV8UC1,
 	)
 
+	pixels, err := safeZone.DataPtrUint8()
+	if err != nil {
+		safeZone.Close()
+		occupancy.Close()
+		t.Fatalf("safeZone.DataPtrUint8() error = %v", err)
+	}
+	space, err := layout.NewSpace(size, size, pixels)
+	if err != nil {
+		safeZone.Close()
+		occupancy.Close()
+		t.Fatalf("layout.NewSpace() error = %v", err)
+	}
+
 	centers := make([]Center, len(points))
 	for i, point := range points {
 		centers[i] = Center{Point: point}
 	}
 
 	ctx := &PlacementContext{
+		space:       space,
 		safeZone:    &safeZone,
 		occupancy:   &occupancy,
 		centers:     centers,
@@ -350,6 +361,31 @@ func newPlacementTestContext(
 	t.Cleanup(ctx.Close)
 
 	return ctx
+}
+
+func resetPlacementSafeZone(
+	t *testing.T,
+	ctx *PlacementContext,
+	rects []image.Rectangle,
+) {
+	t.Helper()
+
+	ctx.safeZone.SetTo(gocv.NewScalar(0, 0, 0, 0))
+	for _, rect := range rects {
+		roi := ctx.safeZone.Region(rect)
+		roi.SetTo(gocv.NewScalar(255, 0, 0, 0))
+		roi.Close()
+	}
+
+	pixels, err := ctx.safeZone.DataPtrUint8()
+	if err != nil {
+		t.Fatalf("safeZone.DataPtrUint8() error = %v", err)
+	}
+	space, err := layout.NewSpace(ctx.safeZone.Cols(), ctx.safeZone.Rows(), pixels)
+	if err != nil {
+		t.Fatalf("layout.NewSpace() error = %v", err)
+	}
+	ctx.space = space
 }
 
 func testWord(width, height float64) textutil.Word {
