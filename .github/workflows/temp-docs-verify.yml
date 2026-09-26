@@ -1,0 +1,23 @@
+name: Temp documentation verification
+
+on:
+  push:
+    branches:
+      - feature/init-wordcloud
+  workflow_dispatch:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build test toolchain
+        run: docker build --target toolchain -t image-play:toolchain .
+      - name: Test
+        run: |
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            image-play:toolchain \
+            go test ./...
