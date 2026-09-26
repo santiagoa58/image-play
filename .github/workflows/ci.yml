@@ -22,7 +22,7 @@ jobs:
             -v "$PWD:/src" \
             -w /src \
             image-play:toolchain \
-            sh -lc 'files="$(gofmt -l .)"; test -z "$files" || { echo "$files"; exit 1; }'
+            sh -c 'files="$(/usr/local/go/bin/gofmt -l .)"; test -z "$files" || { echo "$files"; exit 1; }'
 
       - name: Check module files
         run: |
