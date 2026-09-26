@@ -1,7 +1,7 @@
 # image-play
 
-`image-play` is a Go image-effects playground. The active CLI currently
-generates image-shaped word clouds.
+`image-play` is a Go image-effects playground with multiple supported effects,
+including image-shaped word clouds and text mosaics.
 
 ## Word cloud
 
@@ -51,6 +51,8 @@ The main package boundaries are:
 - `internal/effects/wordcloud`: artistic layout policy: center selection,
   horizontal/vertical preference, spiral search, resizing, progress, and
   rendering.
+- `internal/effects/textmosaic`: text-mosaic effect that reconstructs an image
+  from repeated text colored from the source image.
 - `internal/layout`: generic rectangle containment and collision geometry.
 - `internal/mathutil`: small deterministic geometry and scaling helpers.
 
@@ -105,6 +107,16 @@ For each size, placement searches every configured position horizontally before
 falling back to 90-degree rotation. Search origins come from deep points in the
 distance transform so large words start in roomy parts of the silhouette.
 
+## Text mosaic
+
+`internal/effects/textmosaic` is a separate supported image effect. It rebuilds
+an image from repeated text, sampling the source image for the text color at
+each grid position. It supports resizing, contrast adjustment, transparent
+source pixels, and automatic font scaling across image resolutions.
+
+The word-cloud CLI is currently the active command-line path; the text-mosaic
+effect remains independently implemented, documented, and covered by tests.
+
 ## Debugging
 
 Set `Debug` in the word-cloud configuration to write intermediate images for:
@@ -143,8 +155,8 @@ The CLI always writes PNG output. If `-out` is omitted, the output is written
 beside the input as `<input>_wordcloud.png`. Existing directories and paths
 ending in a separator are treated as output directories.
 
-CI checks formatting, `go vet`, the full test suite, and the deployable Docker
-image on pushes and pull requests.
+CI checks formatting, module tidiness, `go vet`, the full test suite, the
+deployable Docker image, and an end-to-end word-cloud smoke generation.
 
 The repository Dockerfile provides the OpenCV toolchain and runtime stages used
 for local and container builds.
