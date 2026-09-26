@@ -12,6 +12,29 @@ The CLI selects an effect explicitly with `-effect`:
 
 Both effects share the same required inputs: an image, a text file, and a font.
 
+## Example effects
+
+The same source image and text can be rendered with either supported effect.
+These previews were generated from the current implementation using
+`testdata/images/gen-img-couple.png`, the sample text, and the included
+Noto Sans Mono font.
+
+<table>
+  <tr>
+    <th>Original</th>
+    <th>Text Mosaic</th>
+    <th>Word Cloud</th>
+  </tr>
+  <tr>
+    <td><img src="testdata/images/gen-img-couple.png" width="280" alt="Original couple image"></td>
+    <td><img src="docs/assets/examples/gen-img-couple-textmosaic.webp" width="280" alt="Text mosaic effect generated from the couple image"></td>
+    <td><img src="docs/assets/examples/gen-img-couple-wordcloud.webp" width="280" alt="Word cloud effect generated from the couple image"></td>
+  </tr>
+</table>
+
+The README previews are resized for display; the effects themselves render at
+the configured/source resolution.
+
 ## Word cloud
 
 The word-cloud pipeline turns a source image into a placement silhouette, sizes
@@ -57,13 +80,13 @@ The main package boundaries are:
   and distance transforms.
 - `internal/textutil`: tokenization, stop-word filtering, frequency counting,
   font-size scaling, and word measurement.
-- `internal/effects/wordcloud`: artistic layout policy: center selection,
-  horizontal/vertical preference, spiral search, resizing, progress, and
-  rendering.
-- `internal/effects/textmosaic`: text-mosaic effect that reconstructs an image
-  from repeated text colored from the source image.
+- `internal/effects/wordcloud`: the complete word-cloud effect pipeline and
+  artistic placement policy.
+- `internal/effects/textmosaic`: the complete text-mosaic effect pipeline,
+  including source preparation, font-grid measurement, rendering, and output.
 - `internal/layout`: generic rectangle containment and collision geometry.
 - `internal/mathutil`: small deterministic geometry and scaling helpers.
+- `cmd/mosaic`: CLI parsing and effect selection only.
 
 ## Placement geometry
 
@@ -92,10 +115,6 @@ for local collision checks. The implementation is adapted to Go's
 `image.Rectangle`, our alpha-aware mask semantics, and our existing artistic
 placement policy.
 
-This attribution documents the algorithmic references used while designing the
-implementation. The source files in `internal/layout` contain the same
-references next to the code.
-
 ## Placement behavior
 
 Words are processed in frequency order. The minimum font size is configured,
@@ -118,8 +137,10 @@ distance transform so large words start in roomy parts of the silhouette.
 
 ## Text mosaic
 
-The text-mosaic effect rebuilds an image from repeated text, sampling the source
-image for the text color at each grid position.
+The text-mosaic effect rebuilds an image from repeated text. The source is
+optionally resized and contrast-adjusted, converted to grayscale, then sampled
+at each text-grid position so the rendered characters reproduce the source
+luminance on a transparent canvas.
 
 ```bash
 go run ./cmd/mosaic \
@@ -130,8 +151,9 @@ go run ./cmd/mosaic \
   -out output.png
 ```
 
-The implementation supports resizing, contrast adjustment, transparent source
-pixels, and automatic font scaling across image resolutions.
+Text Mosaic owns its file loading, image preparation, font-grid measurement,
+rendering, and output. The CLI dispatches to it in the same way it dispatches
+to Word Cloud.
 
 ## Output paths
 
