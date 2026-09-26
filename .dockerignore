@@ -2,3 +2,5 @@
 .devcontainer
 bin
 results
+temp
+ci-output

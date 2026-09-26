@@ -24,6 +24,14 @@ jobs:
             image-play:toolchain \
             sh -lc 'files="$(gofmt -l .)"; test -z "$files" || { echo "$files"; exit 1; }'
 
+      - name: Check module files
+        run: |
+          docker run --rm \
+            -v "$PWD:/src" \
+            -w /src \
+            image-play:toolchain \
+            go mod tidy -diff
+
       - name: Vet
         run: |
           docker run --rm \
@@ -42,3 +50,18 @@ jobs:
 
       - name: Build runtime image
         run: docker build --target runtime -t image-play:mosaic .
+
+      - name: Smoke test runtime image
+        run: |
+          mkdir -p ci-output
+          chmod 777 ci-output
+          docker run --rm \
+            -v "$PWD/testdata:/work/testdata:ro" \
+            -v "$PWD/fonts:/work/fonts:ro" \
+            -v "$PWD/ci-output:/work/output" \
+            image-play:mosaic \
+            -in /work/testdata/images/deepseek-logo-icon.png \
+            -text /work/testdata/text/sample_text_message.txt \
+            -font "/work/fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+            -out /work/output/smoke.png
+          test -s ci-output/smoke.png

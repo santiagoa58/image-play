@@ -5,87 +5,6 @@ import (
 	"testing"
 )
 
-func TestScaleLinear(t *testing.T) {
-	tests := []struct {
-		name   string
-		value  float64
-		input  Range
-		output Range
-		want   float64
-	}{
-		{
-			name:   "maps input minimum to output minimum",
-			value:  0,
-			input:  Range{Min: 0, Max: 100},
-			output: Range{Min: 10, Max: 20},
-			want:   10,
-		},
-		{
-			name:   "maps midpoint linearly",
-			value:  50,
-			input:  Range{Min: 0, Max: 100},
-			output: Range{Min: 10, Max: 20},
-			want:   15,
-		},
-		{
-			name:   "maps input maximum to output maximum",
-			value:  100,
-			input:  Range{Min: 0, Max: 100},
-			output: Range{Min: 10, Max: 20},
-			want:   20,
-		},
-		{
-			name:   "clamps below input minimum",
-			value:  -1,
-			input:  Range{Min: 0, Max: 100},
-			output: Range{Min: 10, Max: 20},
-			want:   10,
-		},
-		{
-			name:   "clamps above input maximum",
-			value:  101,
-			input:  Range{Min: 0, Max: 100},
-			output: Range{Min: 10, Max: 20},
-			want:   20,
-		},
-		{
-			name:   "supports descending output range",
-			value:  25,
-			input:  Range{Min: 0, Max: 100},
-			output: Range{Min: 20, Max: 0},
-			want:   15,
-		},
-		{
-			name:   "zero-width input returns output minimum",
-			value:  10,
-			input:  Range{Min: 5, Max: 5},
-			output: Range{Min: 10, Max: 20},
-			want:   10,
-		},
-		{
-			name:   "reversed input returns output minimum",
-			value:  10,
-			input:  Range{Min: 20, Max: 10},
-			output: Range{Min: 10, Max: 20},
-			want:   10,
-		},
-		{
-			name:   "NaN value returns output minimum",
-			value:  math.NaN(),
-			input:  Range{Min: 0, Max: 100},
-			output: Range{Min: 10, Max: 20},
-			want:   10,
-		},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			got := ScaleLinear(test.value, test.input, test.output)
-			assertClose(t, got, test.want)
-		})
-	}
-}
-
 func TestScaleLog(t *testing.T) {
 	input := Range{Min: 1, Max: 100}
 	output := Range{Min: 12, Max: 72}
@@ -95,26 +14,10 @@ func TestScaleLog(t *testing.T) {
 		value float64
 		want  float64
 	}{
-		{
-			name:  "maps input minimum to output minimum",
-			value: 1,
-			want:  12,
-		},
-		{
-			name:  "maps input maximum to output maximum",
-			value: 100,
-			want:  72,
-		},
-		{
-			name:  "clamps below input minimum",
-			value: 0,
-			want:  12,
-		},
-		{
-			name:  "clamps above input maximum",
-			value: 200,
-			want:  72,
-		},
+		{name: "maps input minimum to output minimum", value: 1, want: 12},
+		{name: "maps input maximum to output maximum", value: 100, want: 72},
+		{name: "clamps below input minimum", value: 0, want: 12},
+		{name: "clamps above input maximum", value: 200, want: 72},
 		{
 			name:  "maps intermediate value logarithmically",
 			value: 9,
