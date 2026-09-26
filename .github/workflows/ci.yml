@@ -7,7 +7,7 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository
@@ -51,17 +51,37 @@ jobs:
       - name: Build runtime image
         run: docker build --target runtime -t image-play:mosaic .
 
-      - name: Smoke test runtime image
+      - name: Generate all supported effects
         run: |
-          mkdir -p ci-output
-          chmod 777 ci-output
-          docker run --rm \
-            -v "$PWD/testdata:/work/testdata:ro" \
-            -v "$PWD/fonts:/work/fonts:ro" \
-            -v "$PWD/ci-output:/work/output" \
-            image-play:mosaic \
-            -in /work/testdata/images/deepseek-logo-icon.png \
-            -text /work/testdata/text/sample_text_message.txt \
-            -font "/work/fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
-            -out /work/output/smoke.png
-          test -s ci-output/smoke.png
+          mkdir -p ci-output/wordcloud ci-output/textmosaic
+          chmod -R 777 ci-output
+
+          for image in testdata/images/*; do
+            name="$(basename "$image")"
+            stem="${name%.*}"
+
+            for effect in wordcloud textmosaic; do
+              echo "::group::$effect — $name"
+              docker run --rm \
+                -v "$PWD/testdata:/work/testdata:ro" \
+                -v "$PWD/fonts:/work/fonts:ro" \
+                -v "$PWD/ci-output:/work/output" \
+                image-play:mosaic \
+                -effect "$effect" \
+                -in "/work/$image" \
+                -text /work/testdata/text/sample_text_message.txt \
+                -font "/work/fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+                -out "/work/output/$effect/$stem.png"
+              test -s "ci-output/$effect/$stem.png"
+              file "ci-output/$effect/$stem.png"
+              echo "::endgroup::"
+            done
+          done
+
+      - name: Upload visual test outputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-test-results
+          path: ci-output/**/*.png
+          if-no-files-found: error
+          retention-days: 7

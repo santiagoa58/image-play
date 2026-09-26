@@ -3,6 +3,15 @@
 `image-play` is a Go image-effects playground with multiple supported effects,
 including image-shaped word clouds and text mosaics.
 
+The CLI selects an effect explicitly with `-effect`:
+
+```text
+-effect wordcloud
+-effect textmosaic
+```
+
+Both effects share the same required inputs: an image, a text file, and a font.
+
 ## Word cloud
 
 The word-cloud pipeline turns a source image into a placement silhouette, sizes
@@ -10,6 +19,7 @@ words by frequency, then packs those words inside the silhouette.
 
 ```bash
 go run ./cmd/mosaic \
+  -effect wordcloud \
   -in testdata/images/deepseek-logo-icon.png \
   -text testdata/text/sample_text_message.txt \
   -font "fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
@@ -18,9 +28,8 @@ go run ./cmd/mosaic \
 
 Current defaults include horizontal-first 0/90-degree placement, logarithmic
 frequency scaling, rectangular word footprints, an automatic maximum font size,
-and up to 500 candidate words.
-The candidate limit is a source pool: words that cannot fit at the minimum font
-size are skipped.
+and up to 500 candidate words. The candidate limit is a source pool: words that
+cannot fit at the minimum font size are skipped.
 
 ### Pipeline
 
@@ -109,13 +118,33 @@ distance transform so large words start in roomy parts of the silhouette.
 
 ## Text mosaic
 
-`internal/effects/textmosaic` is a separate supported image effect. It rebuilds
-an image from repeated text, sampling the source image for the text color at
-each grid position. It supports resizing, contrast adjustment, transparent
-source pixels, and automatic font scaling across image resolutions.
+The text-mosaic effect rebuilds an image from repeated text, sampling the source
+image for the text color at each grid position.
 
-The word-cloud CLI is currently the active command-line path; the text-mosaic
-effect remains independently implemented, documented, and covered by tests.
+```bash
+go run ./cmd/mosaic \
+  -effect textmosaic \
+  -in testdata/images/gen-img-couple.png \
+  -text testdata/text/sample_text_message.txt \
+  -font "fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+  -out output.png
+```
+
+The implementation supports resizing, contrast adjustment, transparent source
+pixels, and automatic font scaling across image resolutions.
+
+## Output paths
+
+Both effects write PNG files. If `-out` is omitted, output is written beside
+the input as:
+
+```text
+<input>_wordcloud.png
+<input>_textmosaic.png
+```
+
+Existing directories and paths ending in a separator are treated as output
+directories.
 
 ## Debugging
 
@@ -128,8 +157,8 @@ Set `Debug` in the word-cloud configuration to write intermediate images for:
 - occupied rectangles,
 - and the final rendered cloud.
 
-Normal generation logs the prepared, placed, skipped, horizontal, and vertical
-word counts plus placement and total latency.
+Normal word-cloud generation logs the prepared, placed, skipped, horizontal,
+and vertical word counts plus placement and total latency.
 
 ## Development
 
@@ -151,12 +180,10 @@ Build the CLI:
 go build -o ./bin/mosaic ./cmd/mosaic
 ```
 
-The CLI always writes PNG output. If `-out` is omitted, the output is written
-beside the input as `<input>_wordcloud.png`. Existing directories and paths
-ending in a separator are treated as output directories.
-
 CI checks formatting, module tidiness, `go vet`, the full test suite, the
-deployable Docker image, and an end-to-end word-cloud smoke generation.
+deployable Docker image, and all combinations of supported effects and images
+under `testdata/images`. The generated PNGs are uploaded as a short-lived
+workflow artifact so visual output can be reviewed.
 
 The repository Dockerfile provides the OpenCV toolchain and runtime stages used
 for local and container builds.
