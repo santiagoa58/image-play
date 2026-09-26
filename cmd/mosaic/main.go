@@ -1,239 +1,218 @@
 package main
 
 import (
-	"errors"
+	"flag"
 	"fmt"
-	"image"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/disintegration/imaging"
+	"github.com/santiagoa58/image-play/internal/effects/textmosaic"
 	"github.com/santiagoa58/image-play/internal/effects/wordcloud"
-	"github.com/santiagoa58/image-play/internal/util"
+	"github.com/santiagoa58/image-play/internal/textutil"
 )
 
 const (
-	appName                    = "mosaic"
-	appVersion                 = "dev"
-	effectTextMosaic           = "textmosaic"
-	effectWordCloud            = "wordcloud"
-	defaultOutputExt           = ".png"
-	textMosaicOutputSuffix     = "_mosaic"
-	wordCloudOutputSuffix      = "_wordcloud"
-	defaultOptionalFloatFlag   = -1.0
-	defaultOptionalIntegerFlag = -1
-	defaultFontPath            = "fonts/NotoSansMono-VariableFont_wdth,wght.ttf"
-	defaultWordCloudText       = "memory portrait travel celebration family friends together joy love promise heart city sky building detail journey bright calm"
-	defaultTextMosaicText      = "Every image effect in this project starts with a source picture and turns it into a new visual texture."
+	appName    = "mosaic"
+	appVersion = "dev"
 )
+
+type effect string
+
+const (
+	effectWordCloud  effect = "wordcloud"
+	effectTextMosaic effect = "textmosaic"
+)
+
+type options struct {
+	inputPath  string
+	outputPath string
+	textPath   string
+	fontPath   string
+}
 
 func main() {
 	if err := run(); err != nil {
-		fmt.Fprintf(os.Stderr, "❌ %v\n", err)
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 }
 
 func run() error {
-	opts := registerCLIFlags(flagCommandLine())
-	configureUsage(flagCommandLine())
-	flagCommandLine().Parse(os.Args[1:])
-	if opts.common.advanced {
-		printAdvancedUsage(flagCommandLine())
-		return nil
+	var (
+		effectName = flag.String(
+			"effect",
+			"",
+			"Effect to apply: wordcloud or textmosaic [required]",
+		)
+		inputPath = flag.String(
+			"in",
+			"",
+			"Path to input image (PNG, JPEG, WebP, etc.) [required]",
+		)
+		outputPath = flag.String(
+			"out",
+			"",
+			"Output PNG path or directory. Empty = input_<effect>.png",
+		)
+		textPath = flag.String(
+			"text",
+			"",
+			"Path to text file [required]",
+		)
+		fontPath = flag.String(
+			"font",
+			"",
+			"Path to a TTF or OTF font file [required]",
+		)
+	)
+
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "%s — image effects toolkit\n\n", appName)
+		fmt.Fprintln(os.Stderr, "Usage:")
+		flag.PrintDefaults()
 	}
 
-	selectedEffect, err := normalizeEffectName(opts.common.effect)
+	flag.Parse()
+
+	selectedEffect, err := parseEffect(*effectName)
 	if err != nil {
-		flagCommandLine().Usage()
+		flag.Usage()
 		return err
 	}
 
-	logger := newLogger(opts.common.verbose)
-	logger.Info("mosaic starting", "version", appVersion, "effect", selectedEffect)
-
-	if err := validateRequiredFlags(opts.common.inputPath); err != nil {
-		flagCommandLine().Usage()
+	opts := options{
+		inputPath:  *inputPath,
+		outputPath: *outputPath,
+		textPath:   *textPath,
+		fontPath:   *fontPath,
+	}
+	if err := validateRequiredFlags(opts); err != nil {
+		flag.Usage()
 		return err
 	}
 
-	logger.Debug("loading image", "path", opts.common.inputPath)
+	slog.Info(
+		"mosaic starting",
+		"version", appVersion,
+		"effect", selectedEffect,
+	)
 
-	img, err := imaging.Open(opts.common.inputPath)
-	if err != nil {
-		return fmt.Errorf("open input image %q: %w", opts.common.inputPath, err)
-	}
-	resolvedFontPath, err := resolveFontPath(opts.common.fontPath)
-	if err != nil {
-		return err
-	}
-	effectText, err := resolveText(opts.common.text, opts.common.textFile, defaultTextForEffect(selectedEffect))
-	if err != nil {
-		return err
-	}
-	resolvedWidth := resolveTargetWidth(opts.common.width, selectedEffect)
+	return runEffect(selectedEffect, opts)
+}
 
-	finalOutputPath, err := util.ResolveOutputPath(opts.common.inputPath, opts.common.outputPath, util.OutputPathOptions{
-		DefaultExt:        defaultOutputExt,
-		DefaultSuffix:     defaultOutputSuffix(selectedEffect),
-		AllowCreateParent: opts.common.createDirs,
-		AllowOverwrite:    opts.common.overwrite,
-	})
+func parseEffect(value string) (effect, error) {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case string(effectWordCloud):
+		return effectWordCloud, nil
+	case string(effectTextMosaic):
+		return effectTextMosaic, nil
+	case "":
+		return "", fmt.Errorf("missing required flag: -effect")
+	default:
+		return "", fmt.Errorf(
+			"unsupported effect %q: choose %q or %q",
+			value,
+			effectWordCloud,
+			effectTextMosaic,
+		)
+	}
+}
+
+func runEffect(selected effect, opts options) error {
+	switch selected {
+	case effectWordCloud:
+		return runWordCloud(opts)
+	case effectTextMosaic:
+		return runTextMosaic(opts)
+	default:
+		return fmt.Errorf("unsupported effect %q", selected)
+	}
+}
+
+func runWordCloud(opts options) error {
+	cfg := wordcloud.NewConfig(
+		wordcloud.WithInputPath(opts.inputPath),
+		wordcloud.WithOutputPath(opts.outputPath),
+		wordcloud.WithTextPath(opts.textPath),
+		wordcloud.WithFontPath(opts.fontPath),
+	)
+
+	if err := wordcloud.Generate(cfg); err != nil {
+		return fmt.Errorf("generate word cloud: %w", err)
+	}
+
+	return nil
+}
+
+func runTextMosaic(opts options) error {
+	textBytes, err := os.ReadFile(opts.textPath)
+	if err != nil {
+		return fmt.Errorf("read text file %q: %w", opts.textPath, err)
+	}
+
+	mosaicText := strings.TrimSpace(string(textBytes))
+	if mosaicText == "" {
+		return fmt.Errorf("text file %q is empty", opts.textPath)
+	}
+
+	inputImage, err := imaging.Open(opts.inputPath)
+	if err != nil {
+		return fmt.Errorf("open input image %q: %w", opts.inputPath, err)
+	}
+
+	outputPath, err := textutil.ResolveOutputPath(
+		opts.inputPath,
+		opts.outputPath,
+		string(effectTextMosaic),
+		".png",
+	)
 	if err != nil {
 		return fmt.Errorf("resolve output path: %w", err)
 	}
-
-	logger.Debug("resolved output path", "path", finalOutputPath)
-
-	if opts.common.createDirs {
-		if err := os.MkdirAll(filepath.Dir(finalOutputPath), 0755); err != nil {
-			return fmt.Errorf("create output directory: %w", err)
-		}
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		return fmt.Errorf("create output directory: %w", err)
 	}
 
-	var (
-		outputImage image.Image
-		stats       *wordcloud.Stats
+	result, err := textmosaic.Generate(textmosaic.Config{
+		Logger:       slog.Default(),
+		Text:         mosaicText,
+		InputImage:   inputImage,
+		MonoFontPath: opts.fontPath,
+	})
+	if err != nil {
+		return fmt.Errorf("generate text mosaic: %w", err)
+	}
+
+	if err := imaging.Save(result, outputPath); err != nil {
+		return fmt.Errorf("save text mosaic %q: %w", outputPath, err)
+	}
+
+	slog.Info(
+		"text mosaic generated",
+		"output", outputPath,
+		"width", result.Bounds().Dx(),
+		"height", result.Bounds().Dy(),
 	)
-
-	switch selectedEffect {
-	case effectTextMosaic:
-		outputImage, err = generateTextMosaic(logger, img, effectText, resolvedFontPath, resolvedWidth, opts.text)
-		if err != nil {
-			return fmt.Errorf("generate text mosaic: %w", err)
-		}
-	case effectWordCloud:
-		result, err := generateWordCloud(logger, img, effectText, resolvedFontPath, resolvedWidth, opts.wordCloud)
-		if err != nil {
-			return fmt.Errorf("generate word cloud: %w", err)
-		}
-		outputImage = result.Image
-		stats = &result.Stats
-	default:
-		return fmt.Errorf("unsupported effect %q", selectedEffect)
-	}
-
-	logger.Debug("saving output", "path", finalOutputPath)
-
-	if err := imaging.Save(outputImage, finalOutputPath); err != nil {
-		return fmt.Errorf("save image %q: %w", finalOutputPath, err)
-	}
-
-	logger.Info(
-		"success",
-		"output", finalOutputPath,
-		"size", fmt.Sprintf("%dx%d", outputImage.Bounds().Dx(), outputImage.Bounds().Dy()),
-	)
-
-	if stats != nil {
-		fmt.Printf(
-			"✅ Done! Saved to %s (placed %d/%d words, occupied %.1f%% of mask)\n",
-			finalOutputPath,
-			stats.PlacedWords,
-			stats.AttemptedWords,
-			stats.OccupiedCoverage*100,
-		)
-		return nil
-	}
-
-	fmt.Printf("✅ Done! Saved to %s\n", finalOutputPath)
-	return nil
-}
-
-func newLogger(verbose bool) *slog.Logger {
-	level := slog.LevelInfo
-	if verbose {
-		level = slog.LevelDebug
-	}
-
-	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: level,
-	}))
-}
-
-func validateRequiredFlags(inputPath string) error {
-	if strings.TrimSpace(inputPath) == "" {
-		return errors.New("missing required flag: -in")
-	}
 
 	return nil
 }
 
-func resolveFontPath(fontPath string) (string, error) {
-	fontPath = strings.TrimSpace(fontPath)
-	if fontPath != "" {
-		return fontPath, nil
-	}
-	if _, err := os.Stat(defaultFontPath); err == nil {
-		return defaultFontPath, nil
-	}
-	return "", errors.New("missing required flag: -font")
-}
-
-func resolveText(text, textFile string, defaultText string) (string, error) {
-	text = strings.TrimSpace(text)
-	textFile = strings.TrimSpace(textFile)
-
-	if text != "" && textFile != "" {
-		return "", errors.New("use either -text or -text-file, not both")
-	}
-
-	if text != "" {
-		return text, nil
-	}
-
-	if textFile != "" {
-		b, err := os.ReadFile(textFile)
-		if err != nil {
-			return "", fmt.Errorf("read text file %q: %w", textFile, err)
+func validateRequiredFlags(opts options) error {
+	for _, required := range []struct {
+		name  string
+		value string
+	}{
+		{"-in", opts.inputPath},
+		{"-text", opts.textPath},
+		{"-font", opts.fontPath},
+	} {
+		if strings.TrimSpace(required.value) == "" {
+			return fmt.Errorf("missing required flag: %s", required.name)
 		}
-
-		content := strings.TrimSpace(string(b))
-		if content == "" {
-			return "", fmt.Errorf("text file %q is empty", textFile)
-		}
-
-		return content, nil
 	}
 
-	return defaultText, nil
-}
-
-func defaultTextForEffect(effect string) string {
-	if effect == effectWordCloud {
-		return defaultWordCloudText
-	}
-	return defaultTextMosaicText
-}
-
-func resolveTargetWidth(width int, effect string) int {
-	if width != 0 {
-		return width
-	}
-	if effect == effectWordCloud {
-		return 512
-	}
-	return width
-}
-
-func normalizeEffectName(effect string) (string, error) {
-	switch strings.ToLower(strings.TrimSpace(effect)) {
-	case "", "text", "mosaic", "text-mosaic", effectTextMosaic:
-		return effectTextMosaic, nil
-	case "word-cloud", "cloud", effectWordCloud:
-		return effectWordCloud, nil
-	default:
-		return "", fmt.Errorf("unknown effect %q", effect)
-	}
-}
-
-func defaultOutputSuffix(effect string) string {
-	switch effect {
-	case effectWordCloud:
-		return wordCloudOutputSuffix
-	default:
-		return textMosaicOutputSuffix
-	}
+	return nil
 }

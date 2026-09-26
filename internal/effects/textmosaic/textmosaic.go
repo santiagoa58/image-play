@@ -49,16 +49,9 @@ type Config struct {
 	// Use 0 for the default of 14px.
 	BaseFontSize float64
 
-	// IsBlackAndWhite converts the processed image to grayscale before sampling.
-	IsBlackAndWhite bool
-
 	// ContrastPercent adjusts image contrast before sampling.
 	// 0 means no change. Positive values increase contrast; negative values decrease it.
 	ContrastPercent float64
-
-	// TextWeight controls synthetic overprint weight. 1 is normal; 2-3 produce
-	// bolder text without requiring a separate font file.
-	TextWeight int
 }
 
 // fontMetrics holds only the measurements needed for the grid.
@@ -107,7 +100,7 @@ func Generate(conf Config) (image.Image, error) {
 	conf.Logger.Debug("drawing text mosaic", "text_runes", len(txt))
 
 	// Draw the colored text on a transparent canvas
-	result := drawTextMosaic(font, canvas, processed, txt, conf.TextWeight)
+	result := drawTextMosaic(font, canvas, processed, txt)
 
 	conf.Logger.Debug("text mosaic generation completed")
 	return result, nil
@@ -154,12 +147,6 @@ func normalizeConfig(conf Config) (Config, error) {
 	if conf.BaseFontSize == 0 {
 		conf.BaseFontSize = 14.0
 	}
-	if conf.TextWeight <= 0 {
-		conf.TextWeight = 1
-	}
-	if conf.TextWeight > 4 {
-		return conf, errors.New("text weight cannot be greater than 4")
-	}
 	return conf, nil
 }
 
@@ -174,9 +161,7 @@ func applyImageProcessing(conf Config) image.Image {
 	if conf.ContrastPercent != 0 {
 		img = imaging.AdjustContrast(img, conf.ContrastPercent)
 	}
-	if conf.IsBlackAndWhite {
-		img = imaging.Grayscale(img)
-	}
+	img = imaging.Grayscale(img)
 
 	return img
 }
@@ -240,7 +225,7 @@ func normalizeText(text string) ([]rune, error) {
 }
 
 // drawTextMosaic draws the repeated colored text to form the mosaic effect on a transparent canvas.
-func drawTextMosaic(font *fontMetrics, canvas *textCanvas, sample image.Image, txt []rune, textWeight int) image.Image {
+func drawTextMosaic(font *fontMetrics, canvas *textCanvas, sample image.Image, txt []rune) image.Image {
 	var (
 		ctx   = canvas.context
 		charW = font.charWidth
@@ -262,7 +247,7 @@ func drawTextMosaic(font *fontMetrics, canvas *textCanvas, sample image.Image, t
 			}
 			ctx.SetRGBA(r, g, b, a)
 			char := txt[txtIdx]
-			drawWeightedString(ctx, string(char), float64(x), float64(y), gridOffsetFraction, gridOffsetFraction, textWeight)
+			ctx.DrawStringAnchored(string(char), float64(x), float64(y), gridOffsetFraction, gridOffsetFraction)
 
 			txtIdx++
 			if txtIdx >= txtLen {
@@ -273,27 +258,6 @@ func drawTextMosaic(font *fontMetrics, canvas *textCanvas, sample image.Image, t
 	}
 
 	return ctx.Image()
-}
-
-func drawWeightedString(ctx *gg.Context, text string, x, y float64, ax, ay float64, weight int) {
-	offsets := []struct {
-		x float64
-		y float64
-	}{
-		{0, 0},
-		{0.42, 0},
-		{0, 0.42},
-		{0.42, 0.42},
-	}
-	if weight < 1 {
-		weight = 1
-	}
-	if weight > len(offsets) {
-		weight = len(offsets)
-	}
-	for i := 0; i < weight; i++ {
-		ctx.DrawStringAnchored(text, x+offsets[i].x, y+offsets[i].y, ax, ay)
-	}
 }
 
 // getImgRGBA gets the pixel color of an image at pixel position (x,y) and returns it as RGBA with values between 0 and 1
