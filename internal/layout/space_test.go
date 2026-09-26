@@ -65,3 +65,9 @@ func TestSpaceRejectsOutOfBounds(t *testing.T) {
 		t.Fatal("TryPlace() = true for out-of-bounds rectangle")
 	}
 }
+
+func TestNewSpaceRejectsShortMask(t *testing.T) {
+	if _, err := NewSpace(10, 10, make([]uint8, 99)); err == nil {
+		t.Fatal("NewSpace() error = nil for undersized mask")
+	}
+}

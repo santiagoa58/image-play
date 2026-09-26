@@ -1,3 +1,8 @@
+// Package layout contains the low-level geometry used by word placement.
+//
+// It deliberately keeps artistic policy out. The summed-area mask follows the
+// integral-image approach used by amueller/word_cloud, while dynamic collision
+// lookup follows the spatial-hash approach used by psykhi/wordclouds.
 package layout
 
 import (
@@ -5,7 +10,10 @@ import (
 	"image"
 )
 
-const spatialCellSize = 16
+const (
+	minimumSpatialCellSize = 8
+	targetCellsPerAxis      = 40
+)
 
 // Space tracks where rectangular items may be placed.
 //
@@ -28,10 +36,13 @@ func NewSpace(width, height int, pixels []uint8) (*Space, error) {
 		return nil, errors.New("layout mask is smaller than its dimensions")
 	}
 
+	cellSize := min(width, height) / targetCellsPerAxis
+	cellSize = max(cellSize, minimumSpatialCellSize)
+
 	return &Space{
 		bounds:   image.Rect(0, 0, width, height),
 		allowed:  newIntegralMask(width, height, pixels),
-		occupied: newSpatialIndex(spatialCellSize),
+		occupied: newSpatialIndex(cellSize),
 	}, nil
 }
 
@@ -108,23 +119,23 @@ func (s *spatialIndex) Add(rect image.Rectangle) {
 	id := len(s.rects)
 	s.rects = append(s.rects, rect)
 
-	for _, cell := range s.cellsFor(rect) {
-		s.cells[cell] = append(s.cells[cell], id)
+	minX, maxX, minY, maxY := s.cellRange(rect)
+	for y := minY; y <= maxY; y++ {
+		for x := minX; x <= maxX; x++ {
+			cell := gridCell{x: x, y: y}
+			s.cells[cell] = append(s.cells[cell], id)
+		}
 	}
 }
 
 func (s *spatialIndex) Overlaps(rect image.Rectangle) bool {
-	seen := make(map[int]struct{})
-
-	for _, cell := range s.cellsFor(rect) {
-		for _, id := range s.cells[cell] {
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-
-			if s.rects[id].Overlaps(rect) {
-				return true
+	minX, maxX, minY, maxY := s.cellRange(rect)
+	for y := minY; y <= maxY; y++ {
+		for x := minX; x <= maxX; x++ {
+			for _, id := range s.cells[gridCell{x: x, y: y}] {
+				if s.rects[id].Overlaps(rect) {
+					return true
+				}
 			}
 		}
 	}
@@ -132,17 +143,10 @@ func (s *spatialIndex) Overlaps(rect image.Rectangle) bool {
 	return false
 }
 
-func (s *spatialIndex) cellsFor(rect image.Rectangle) []gridCell {
-	minX := rect.Min.X / s.cellSize
-	maxX := (rect.Max.X - 1) / s.cellSize
-	minY := rect.Min.Y / s.cellSize
-	maxY := (rect.Max.Y - 1) / s.cellSize
-
-	cells := make([]gridCell, 0, (maxX-minX+1)*(maxY-minY+1))
-	for y := minY; y <= maxY; y++ {
-		for x := minX; x <= maxX; x++ {
-			cells = append(cells, gridCell{x: x, y: y})
-		}
-	}
-	return cells
+func (s *spatialIndex) cellRange(rect image.Rectangle) (minX, maxX, minY, maxY int) {
+	minX = rect.Min.X / s.cellSize
+	maxX = (rect.Max.X - 1) / s.cellSize
+	minY = rect.Min.Y / s.cellSize
+	maxY = (rect.Max.Y - 1) / s.cellSize
+	return
 }
