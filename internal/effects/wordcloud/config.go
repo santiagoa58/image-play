@@ -121,13 +121,16 @@ func (cfg Config) Validate() error {
 }
 
 // WithInputPath sets the source image path.
-func WithInputPath(path string) Option  { return func(cfg *Config) { cfg.InputPath = path } }
+func WithInputPath(path string) Option { return func(cfg *Config) { cfg.InputPath = path } }
+
 // WithOutputPath sets the output image path.
 func WithOutputPath(path string) Option { return func(cfg *Config) { cfg.OutputPath = path } }
+
 // WithTextPath sets the text source path.
-func WithTextPath(path string) Option   { return func(cfg *Config) { cfg.TextPath = path } }
+func WithTextPath(path string) Option { return func(cfg *Config) { cfg.TextPath = path } }
+
 // WithFontPath sets the TTF/OTF font path.
-func WithFontPath(path string) Option   { return func(cfg *Config) { cfg.FontPath = path } }
+func WithFontPath(path string) Option { return func(cfg *Config) { cfg.FontPath = path } }
 
 // WithMinFontSize sets the minimum placement font size.
 func WithMinFontSize(size float64) Option {
