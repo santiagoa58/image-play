@@ -24,7 +24,6 @@ type PlacedWord struct {
 
 	// Angle is the clockwise rotation in degrees. Current placement uses 0 or 90.
 	Angle int
-
 }
 
 // PlacementContext owns the mutable state for one placement run.
