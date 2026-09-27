@@ -5,7 +5,7 @@ when the usual inputs are trusted photographs or PNGs.
 
 ## Bounded TIFF decompression
 
-`golang.org/x/image` is pinned to v0.43.0 or newer. Versions before v0.41.0 could
+`golang.org/x/image` is pinned to v0.45.0 or newer. Versions before v0.41.0 could
 expand PackBits-compressed TIFF data without an adequate output limit, consuming
 excessive resources for a small crafted image. The upstream patch bounds this
 decompression. This addresses Dependabot alert #7, CVE-2026-46599 / GO-2026-5032.
@@ -16,6 +16,11 @@ The v0.43.0 upgrade also fixes two additional reachable TIFF decoder flaws found
 by `govulncheck`: [unbounded tile sizes, GO-2026-5062](https://pkg.go.dev/vuln/GO-2026-5062)
 and [invalid strip offsets, GO-2026-5066](https://pkg.go.dev/vuln/GO-2026-5066).
 The original Dependabot proposal to use v0.41.0 did not include these fixes.
+
+The v0.45.0 upgrade additionally fixes
+[excessive VP8L decoding allocation, GO-2026-6222](https://pkg.go.dev/vuln/GO-2026-6222).
+That WebP-related package is not called by the current application, but the
+dependency is kept patched rather than retaining the known module advisory.
 
 ## Invalid palette indexes
 
