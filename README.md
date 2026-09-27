@@ -12,6 +12,14 @@ The CLI selects an effect explicitly with `-effect`:
 
 Both effects share the same required inputs: an image, a text file, and a font.
 
+## Learn how the effects work
+
+Start with [How images become words](docs/how-the-effects-work.md) for a
+beginner-friendly explanation of both effects. It builds from pixels, fonts,
+and transparency to word counting, shape selection, packing, and brightness
+sampling, with worked examples, diagrams, experiments, and cited references.
+Code links and configuration examples connect each idea to the implementation.
+
 ## Example effects
 
 The same source image and text can be rendered with either supported effect.
