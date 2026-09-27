@@ -48,6 +48,14 @@ jobs:
             image-play:toolchain \
             go test ./...
 
+      - name: Check Go vulnerabilities
+        run: |
+          docker run --rm \
+            -v "$PWD:/src:ro" \
+            -w /src \
+            image-play:toolchain \
+            go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...
+
       - name: Build runtime image
         run: docker build --target runtime -t image-play:mosaic .
 

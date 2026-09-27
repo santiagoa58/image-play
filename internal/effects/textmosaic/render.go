@@ -27,6 +27,9 @@ func generateImage(source image.Image, text string, cfg Config) (image.Image, er
 	if source.Bounds().Dx() <= 0 || source.Bounds().Dy() <= 0 {
 		return nil, errors.New("input image must have positive dimensions")
 	}
+	if err := validateSourcePalette(source); err != nil {
+		return nil, err
+	}
 
 	runes, err := normalizeText(text)
 	if err != nil {
@@ -35,6 +38,26 @@ func generateImage(source image.Image, text string, cfg Config) (image.Image, er
 
 	processed := prepareSource(source, cfg)
 	return render(processed, runes, cfg.FontPath, cfg.BaseFontSize)
+}
+
+// validateSourcePalette rejects invalid indexes before imaging's concurrent
+// scanner can panic while resizing, adjusting contrast, or converting to gray.
+// See https://github.com/disintegration/imaging/issues/165 (CVE-2023-36308).
+func validateSourcePalette(source image.Image) error {
+	paletted, ok := source.(*image.Paletted)
+	if !ok {
+		return nil
+	}
+	bounds := paletted.Bounds()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		start := paletted.PixOffset(bounds.Min.X, y)
+		for _, index := range paletted.Pix[start : start+bounds.Dx()] {
+			if int(index) >= len(paletted.Palette) {
+				return fmt.Errorf("input image has palette index %d outside palette of %d colors", index, len(paletted.Palette))
+			}
+		}
+	}
+	return nil
 }
 
 func render(
