@@ -26,7 +26,7 @@ type PlacementContext struct {
 	space       *layout.FreeSpace
 	safeZone    *gocv.Mat
 	occupancy   *gocv.Mat
-	depth       *gocv.Mat
+	regions     *regionPolicy
 	wordPadding int
 	angles      []int
 }
@@ -120,28 +120,34 @@ func (ctx *PlacementContext) fits(word textutil.Word) (bool, error) {
 }
 
 func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, bool, error) {
+	options := make([]orientedCenters, 0, len(ctx.angles))
+	defer func() {
+		for _, option := range options {
+			option.centers.Close()
+		}
+	}()
 	for _, angle := range ctx.angles {
 		size := ctx.footprint(word, angle)
 		centers, err := ctx.space.ValidCenters(size)
 		if err != nil {
 			return PlacedWord{}, false, err
 		}
-		if gocv.CountNonZero(centers) == 0 {
-			centers.Close()
-			continue
-		}
-		_, _, _, center := gocv.MinMaxLocWithMask(*ctx.depth, centers)
-		centers.Close()
-		if !ctx.space.Reserve(size, center) {
-			return PlacedWord{}, false, errors.New("selected center could not be reserved")
-		}
-		rect := layout.RectAt(center, size)
-		occupied := ctx.occupancy.Region(rect)
-		occupied.SetTo(gocv.NewScalar(255, 0, 0, 0))
-		occupied.Close()
-		return PlacedWord{Word: word, X: float64(center.X), Y: float64(center.Y), Angle: angle}, true, nil
+		options = append(options, orientedCenters{angle: angle, centers: centers})
 	}
-	return PlacedWord{}, false, nil
+	center, angle, found, err := ctx.regions.choose(options)
+	if err != nil || !found {
+		return PlacedWord{}, false, err
+	}
+	size := ctx.footprint(word, angle)
+	if !ctx.space.Reserve(size, center) {
+		return PlacedWord{}, false, errors.New("selected center could not be reserved")
+	}
+	rect := layout.RectAt(center, size)
+	ctx.regions.reserve(rect)
+	occupied := ctx.occupancy.Region(rect)
+	occupied.SetTo(gocv.NewScalar(255, 0, 0, 0))
+	occupied.Close()
+	return PlacedWord{Word: word, X: float64(center.X), Y: float64(center.Y), Angle: angle}, true, nil
 }
 
 func (ctx *PlacementContext) footprint(word textutil.Word, angle int) image.Point {
@@ -176,8 +182,15 @@ func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, e
 		occ.Close()
 		return nil, fmt.Errorf("create free space: %w", err)
 	}
+	regions, err := newRegionPolicy(*safe, *mask.DistMat)
+	if err != nil {
+		space.Close()
+		safe.Close()
+		occ.Close()
+		return nil, fmt.Errorf("create shape regions: %w", err)
+	}
 	return &PlacementContext{
-		space: space, safeZone: safe, occupancy: occ, depth: mask.DistMat,
+		space: space, safeZone: safe, occupancy: occ, regions: regions,
 		wordPadding: cfg.WordPadding, angles: append([]int(nil), cfg.Angles...),
 	}, nil
 }

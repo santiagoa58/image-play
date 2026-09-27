@@ -17,8 +17,8 @@ import (
 // The pipeline is intentionally split into policy and mechanics:
 //   - imageutil derives the silhouette and distance transform;
 //   - textutil counts, sizes, and measures candidate words;
-//   - this package chooses centers, sizes, orientations, and search order;
-//   - layout.Space performs fast mask-containment and collision checks;
+//   - this package chooses sizes, shape regions, orientations, and positions;
+//   - layout.FreeSpace supplies exact rectangular fit and reservation;
 //   - the renderer draws the accepted layout.
 //
 // A candidate that cannot fit at the minimum size is skipped; WordLimit is a
@@ -48,6 +48,9 @@ func Generate(cfg Config) error {
 	}
 	defer mask.Close()
 	minFontSize := minimumFontSize(mask, cfg)
+	if cfg.MaxFontSize > 0 && cfg.MaxFontSize < minFontSize {
+		return fmt.Errorf("maximum font size %.1fpx is below the resolved minimum %.1fpx", cfg.MaxFontSize, minFontSize)
+	}
 
 	if err := writeMaskDebug(cfg.Debug, outputPath, mask); err != nil {
 		return fmt.Errorf("write mask diagnostics: %w", err)
@@ -96,6 +99,9 @@ func Generate(cfg Config) error {
 		return fmt.Errorf("create placement context: %w", err)
 	}
 	defer placeCtx.Close()
+	if err := writeRegionsDebug(cfg.Debug, outputPath, placeCtx.regions); err != nil {
+		return fmt.Errorf("write region diagnostics: %w", err)
+	}
 
 	// 6. Place words
 	logger.Info("placing words")
