@@ -17,8 +17,8 @@ import (
 // The pipeline is intentionally split into policy and mechanics:
 //   - imageutil derives the silhouette and distance transform;
 //   - textutil counts, sizes, and measures candidate words;
-//   - this package chooses centers, sizes, orientations, and search order;
-//   - layout.Space performs fast mask-containment and collision checks;
+//   - this package chooses sizes, shape regions, orientations, and positions;
+//   - layout.FreeSpace supplies exact rectangular fit and reservation;
 //   - the renderer draws the accepted layout.
 //
 // A candidate that cannot fit at the minimum size is skipped; WordLimit is a
@@ -47,6 +47,10 @@ func Generate(cfg Config) error {
 		return fmt.Errorf("prepare mask: %w", err)
 	}
 	defer mask.Close()
+	minFontSize := minimumFontSize(cfg)
+	if cfg.MaxFontSize > 0 && cfg.MaxFontSize < minFontSize {
+		return fmt.Errorf("maximum font size %.1fpx is below the resolved minimum %.1fpx", cfg.MaxFontSize, minFontSize)
+	}
 
 	if err := writeMaskDebug(cfg.Debug, outputPath, mask); err != nil {
 		return fmt.Errorf("write mask diagnostics: %w", err)
@@ -69,7 +73,7 @@ func Generate(cfg Config) error {
 	}
 	logger.Info(
 		"resolved font range",
-		"min", cfg.MinFontSize,
+		"min", minFontSize,
 		"max", maxFontSize,
 		"automatic_max", cfg.MaxFontSize == 0,
 	)
@@ -78,7 +82,7 @@ func Generate(cfg Config) error {
 		wordCounts,
 		textutil.WordMeasurementConfig{
 			FontPath:    cfg.FontPath,
-			MinFontSize: cfg.MinFontSize,
+			MinFontSize: minFontSize,
 			MaxFontSize: maxFontSize,
 			Limit:       cfg.WordLimit,
 		},
@@ -95,14 +99,8 @@ func Generate(cfg Config) error {
 		return fmt.Errorf("create placement context: %w", err)
 	}
 	defer placeCtx.Close()
-
-	if err := writeCentersDebug(
-		cfg.Debug,
-		outputPath,
-		mask,
-		placeCtx.centers,
-	); err != nil {
-		return fmt.Errorf("write center diagnostics: %w", err)
+	if err := writeRegionsDebug(cfg.Debug, outputPath, placeCtx.regions); err != nil {
+		return fmt.Errorf("write region diagnostics: %w", err)
 	}
 
 	// 6. Place words
@@ -122,7 +120,7 @@ func Generate(cfg Config) error {
 			prevFontSize = last.Word.FontSize
 		}
 
-		p, err := placeCtx.Place(w, prevFontSize, cfg.MinFontSize, placementStepRatio)
+		p, err := placeCtx.Place(w, prevFontSize, minFontSize)
 		if err != nil {
 			if errors.Is(err, errNoPlacement) {
 				skipped++

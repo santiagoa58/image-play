@@ -3,7 +3,6 @@ package wordcloud
 import (
 	"fmt"
 	"image"
-	"image/color"
 	"path/filepath"
 	"strings"
 
@@ -78,49 +77,25 @@ func writeDistanceDebug(
 	return writeDebugMat(true, outputPath, "02-distance", display)
 }
 
-func writeCentersDebug(
-	enabled bool,
-	outputPath string,
-	mask *imageutil.Mask,
-	centers []Center,
-) error {
+func writeRegionsDebug(enabled bool, outputPath string, regions *regionPolicy) error {
 	if !enabled {
 		return nil
 	}
-	if mask == nil || mask.BinaryMat == nil {
-		return fmt.Errorf("write centers debug image: binary mask is unavailable")
+	if regions == nil {
+		return fmt.Errorf("write regions debug image: regions are unavailable")
 	}
-
-	display := gocv.NewMat()
+	display := gocv.NewMatWithSize(regions.height, regions.width, gocv.MatTypeCV8UC1)
 	defer display.Close()
-
-	if err := gocv.CvtColor(
-		*mask.BinaryMat,
-		&display,
-		gocv.ColorGrayToBGR,
-	); err != nil {
-		return fmt.Errorf("convert centers debug image to color: %w", err)
+	pixels, err := display.DataPtrUint8()
+	if err != nil {
+		return err
 	}
-
-	centerColor := color.RGBA{R: 255, A: 255}
-	for _, center := range centers {
-		if err := gocv.Circle(
-			&display,
-			center.Point,
-			3,
-			centerColor,
-			-1,
-		); err != nil {
-			return fmt.Errorf(
-				"draw center at (%d,%d): %w",
-				center.Point.X,
-				center.Point.Y,
-				err,
-			)
+	for i, id := range regions.labels {
+		if id >= 0 {
+			pixels[i] = uint8(40 + (id*73)%200)
 		}
 	}
-
-	return writeDebugMat(true, outputPath, "03-centers", display)
+	return writeDebugMat(true, outputPath, "03-regions", display)
 }
 
 func writePlacementDebug(

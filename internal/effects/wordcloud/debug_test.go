@@ -39,7 +39,8 @@ func TestDebugWritersCreateNumberedImages(t *testing.T) {
 		BinaryMat: &binary,
 		DistMat:   &distance,
 	}
-	centers := []Center{{Point: image.Pt(size/2, size/2)}}
+	labels := make([]int32, size*size)
+	regions := &regionPolicy{width: size, height: size, labels: labels}
 
 	safeZone := binary.Clone()
 	defer safeZone.Close()
@@ -59,13 +60,8 @@ func TestDebugWritersCreateNumberedImages(t *testing.T) {
 	if err := writeDistanceDebug(true, outputPath, mask); err != nil {
 		t.Fatalf("writeDistanceDebug() error = %v", err)
 	}
-	if err := writeCentersDebug(
-		true,
-		outputPath,
-		mask,
-		centers,
-	); err != nil {
-		t.Fatalf("writeCentersDebug() error = %v", err)
+	if err := writeRegionsDebug(true, outputPath, regions); err != nil {
+		t.Fatalf("writeRegionsDebug() error = %v", err)
 	}
 	if err := writePlacementDebug(
 		true,
@@ -86,7 +82,7 @@ func TestDebugWritersCreateNumberedImages(t *testing.T) {
 	for _, label := range []string{
 		"01-mask",
 		"02-distance",
-		"03-centers",
+		"03-regions",
 		"04-safe-zone",
 		"05-occupancy",
 		"06-wordcloud",
@@ -113,26 +109,16 @@ func TestDebugWritersCreateNumberedImages(t *testing.T) {
 		)
 	}
 
-	centersImage := gocv.IMRead(
-		debugPath(outputPath, "03-centers"),
-		gocv.IMReadColor,
+	regionsImage := gocv.IMRead(
+		debugPath(outputPath, "03-regions"),
+		gocv.IMReadGrayScale,
 	)
-	defer centersImage.Close()
-	if centersImage.Empty() {
-		t.Fatal("centers debug image could not be read")
+	defer regionsImage.Close()
+	if regionsImage.Empty() {
+		t.Fatal("regions debug image could not be read")
 	}
-	if got := centersImage.Channels(); got != 3 {
-		t.Errorf("centers debug channels = %d, want 3", got)
-	}
-
-	centerPixel := centersImage.GetVecbAt(size/2, size/2)
-	if centerPixel[0] != 0 ||
-		centerPixel[1] != 0 ||
-		centerPixel[2] != 255 {
-		t.Errorf(
-			"center marker BGR = %v, want [0 0 255]",
-			centerPixel,
-		)
+	if got := regionsImage.GetUCharAt(size/2, size/2); got != 40 {
+		t.Errorf("region marker = %d, want 40", got)
 	}
 }
 
@@ -145,13 +131,8 @@ func TestDebugWritersAreNoOpWhenDisabled(t *testing.T) {
 	if err := writeDistanceDebug(false, outputPath, nil); err != nil {
 		t.Fatalf("writeDistanceDebug(false) error = %v", err)
 	}
-	if err := writeCentersDebug(
-		false,
-		outputPath,
-		nil,
-		nil,
-	); err != nil {
-		t.Fatalf("writeCentersDebug(false) error = %v", err)
+	if err := writeRegionsDebug(false, outputPath, nil); err != nil {
+		t.Fatalf("writeRegionsDebug(false) error = %v", err)
 	}
 
 	empty := gocv.NewMat()

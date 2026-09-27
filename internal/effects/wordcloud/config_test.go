@@ -18,8 +18,8 @@ func TestNewConfigUsesDefaultsAndAppliesOptions(t *testing.T) {
 	if !got.Debug {
 		t.Error("Debug = false, want true")
 	}
-	if got.MinFontSize != 6 {
-		t.Errorf("MinFontSize = %v, want default 6", got.MinFontSize)
+	if got.MinFontSize != 0 {
+		t.Errorf("MinFontSize = %v, want automatic default 0", got.MinFontSize)
 	}
 	if got.MaxFontSize != 0 {
 		t.Errorf("MaxFontSize = %v, want default 0 (automatic)", got.MaxFontSize)

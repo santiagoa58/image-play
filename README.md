@@ -49,10 +49,11 @@ go run ./cmd/mosaic \
   -out output.png
 ```
 
-Current defaults include horizontal-first 0/90-degree placement, logarithmic
-frequency scaling, rectangular word footprints, an automatic maximum font size,
-and up to 500 candidate words. The candidate limit is a source pool: words that
-cannot fit at the minimum font size are skipped.
+Current defaults include 0/90-degree placement, logarithmic frequency scaling,
+rectangular word footprints, an automatic maximum font size, and up to 500
+candidate words. The default minimum size is 6 px for every image. The
+candidate limit is a source pool: words that cannot fit at the minimum size in
+either orientation are skipped.
 
 ### Pipeline
 
@@ -63,11 +64,13 @@ binary silhouette + distance transform
     ↓
 word counts + measured target font sizes
     ↓
-distance-based placement centers
+current free-space mask
     ↓
-spiral candidate positions
+exact legal centers for each word footprint
     ↓
-layout.Space.TryPlace(rect)
+shape-region and orientation choice
+    ↓
+reserve the padded footprint
     ↓
 accepted PlacedWord values
     ↓
@@ -84,45 +87,33 @@ The main package boundaries are:
   artistic placement policy.
 - `internal/effects/textmosaic`: the complete text-mosaic effect pipeline,
   including source preparation, font-grid measurement, rendering, and output.
-- `internal/layout`: generic rectangle containment and collision geometry.
+- `internal/layout`: generic exact rectangular placement geometry.
 - `internal/mathutil`: small deterministic geometry and scaling helpers.
 - `cmd/mosaic`: CLI parsing and effect selection only.
 
 ## Placement geometry
 
-The low-level geometry is deliberately isolated in `internal/layout`. The
-word-cloud package decides *where* and *how* to try a word; `layout.Space`
-only decides whether that rectangular footprint is valid and reserves it on
-success.
+The low-level geometry is isolated in `internal/layout`. `FreeSpace` keeps a
+binary map of the silhouette minus the rectangles already placed. OpenCV's
+rectangular erosion returns every integer center at which a measured, padded
+rectangle fits wholly within that map. The same rectangle is removed when the
+word is placed. Tests compare the result pixel for pixel against exhaustive
+rectangle checks on small irregular shapes. The exactness claim applies to
+these padded rectangles, not individual glyph outlines.
 
-Two mature word-cloud implementations informed this design:
-
-1. **amueller/word_cloud** (Python, MIT license) uses an integral/summed-area
-   occupancy image to make rectangle-space queries cheap.
-   - https://github.com/amueller/word_cloud
-   - https://github.com/amueller/word_cloud/blob/master/wordcloud/wordcloud.py
-   - https://github.com/amueller/word_cloud/blob/master/wordcloud/query_integral_image.pyx
-
-2. **psykhi/wordclouds** (Go, Apache-2.0 license) uses a spatial hash so
-   collision tests only inspect nearby placed rectangles.
-   - https://github.com/psykhi/wordclouds
-   - https://github.com/psykhi/wordclouds/blob/master/spatialhashmap.go
-
-`image-play` combines those ideas rather than importing either complete
-layout engine. The static silhouette uses a summed-area mask for constant-time
-rectangle containment checks; dynamic occupied rectangles use a spatial index
-for local collision checks. The implementation is adapted to Go's
-`image.Rectangle`, our alpha-aware mask semantics, and our existing artistic
-placement policy.
+The separate region policy draws on [ShapeWordle's](https://www.microsoft.com/en-us/research/publication/shapewordle-tailoring-wordles-using-shape-aware-archimedean-spirals/)
+use of distance and shape parts. Deep, separated points seed regions, and a
+flood through the silhouette assigns every usable pixel to a region. The
+region's occupied fraction ranks legal positions; it never rules out a fit.
 
 ## Placement behavior
 
-Words are processed in frequency order. The minimum font size is configured,
-while the default maximum is calibrated against the current image by probing
-the layout with the most important words. Their final target sizes are then
-logarithmically mapped into that resolved font-size range. If a word cannot
-fit, placement retries it at progressively smaller sizes down to the configured
-minimum.
+Words are processed in frequency order. The default minimum is 6 px for every
+image; a positive `MinFontSize` overrides it. The default maximum is calibrated
+against the image by probing the most important words in a fresh layout; a
+positive `MaxFontSize` overrides that calibration. Frequency
+maps words logarithmically into this range. When a desired size does not fit,
+placement binary-searches whole-pixel font sizes down to the minimum.
 
 The maximum starting size for each new word is capped by the previous
 successfully placed word's actual size. This keeps rendered sizes
@@ -131,9 +122,12 @@ non-increasing even when an important word had to shrink to fit.
 When words have equal frequency, their measured rectangle area breaks the tie:
 larger, harder-to-fit words are attempted before smaller gap-filling words.
 
-For each size, placement searches every configured position horizontally before
-falling back to 90-degree rotation. Search origins come from deep points in the
-distance transform so large words start in roomy parts of the silhouette.
+Fit checks consider both configured orientations across the complete remaining
+free space. At the chosen size, placement favors a less-filled shape region,
+then the configured orientation order (horizontal first by default), then the
+deepest legal center in that region. Each reserved rectangle contributes its
+actual occupied area to every region it crosses. A skipped word has no legal
+position in either orientation at the permitted minimum size.
 
 ## Text mosaic
 
@@ -174,7 +168,7 @@ Set `Debug` in the word-cloud configuration to write intermediate images for:
 
 - the binary mask,
 - the distance transform,
-- placement centers,
+- shape regions,
 - the eroded safe zone,
 - occupied rectangles,
 - and the final rendered cloud.

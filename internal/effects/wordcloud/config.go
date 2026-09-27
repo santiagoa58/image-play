@@ -19,7 +19,7 @@ type Config struct {
 	// FontPath points to the TTF/OTF font used for measurement and rendering.
 	FontPath string
 
-	// MinFontSize is the smallest size placement is allowed to try.
+	// MinFontSize overrides the 6px minimum when positive. Zero uses 6px.
 	MinFontSize float64
 	// MaxFontSize overrides automatic maximum-size calibration when positive.
 	// Zero lets the layout determine a sensible maximum from the image shape.
@@ -28,15 +28,6 @@ type Config struct {
 	// a promise that every candidate will be placed.
 	WordLimit int
 
-	// SpiralStepsPerCenter limits how many spiral positions are sampled around
-	// each placement center for one orientation and font size.
-	SpiralStepsPerCenter int
-	// MinCenterDepthRatio discards candidate centers shallower than this
-	// fraction of the maximum distance-transform depth.
-	MinCenterDepthRatio float64
-	// CenterSuppressionRadius controls spacing between candidate centers. Zero
-	// selects an image-size-dependent default.
-	CenterSuppressionRadius int
 	// SafeZoneErodeSize shrinks the binary mask before placement so rendered
 	// words have a small safety margin from the silhouette edge. It must be odd.
 	SafeZoneErodeSize int
@@ -45,8 +36,8 @@ type Config struct {
 	AlphaThreshold uint8
 	// WordPadding expands each rectangular footprint before collision checks.
 	WordPadding int
-	// Angles lists allowed clockwise rotations in preference order. Placement
-	// currently supports 0 and 90 degrees.
+	// Angles lists allowed clockwise rotations in preference order within the
+	// selected shape region. Placement supports 0 and 90 degrees.
 	Angles []int
 
 	// Debug writes intermediate mask, distance, center, occupancy, and output images.
@@ -69,15 +60,12 @@ type Option func(*Config)
 //	)
 func NewConfig(options ...Option) Config {
 	cfg := Config{
-		MinFontSize:             6,
-		WordLimit:               500,
-		SpiralStepsPerCenter:    500,
-		MinCenterDepthRatio:     0.01,
-		CenterSuppressionRadius: 0, // automatic
-		SafeZoneErodeSize:       3,
-		WordPadding:             1,
-		Angles:                  []int{0, 90},
-		AlphaThreshold:          8,
+		MinFontSize:       0,
+		WordLimit:         500,
+		SafeZoneErodeSize: 3,
+		WordPadding:       1,
+		Angles:            []int{0, 90},
+		AlphaThreshold:    8,
 	}
 	for _, option := range options {
 		if option != nil {
@@ -98,20 +86,14 @@ func (cfg Config) Validate() error {
 		return errors.New("text path is required")
 	case strings.TrimSpace(cfg.FontPath) == "":
 		return errors.New("font path is required")
-	case cfg.MinFontSize <= 0:
-		return errors.New("minimum font size must be positive")
+	case cfg.MinFontSize < 0:
+		return errors.New("minimum font size must be zero (automatic) or positive")
 	case cfg.MaxFontSize < 0:
 		return errors.New("maximum font size cannot be negative")
 	case cfg.MaxFontSize > 0 && cfg.MaxFontSize < cfg.MinFontSize:
 		return errors.New("maximum font size must be zero (automatic) or >= minimum")
 	case cfg.WordLimit <= 0:
 		return errors.New("word limit must be positive")
-	case cfg.SpiralStepsPerCenter <= 0:
-		return errors.New("attempt count must be positive")
-	case cfg.MinCenterDepthRatio <= 0 || cfg.MinCenterDepthRatio > 1:
-		return errors.New("center depth ratio must be in (0, 1]")
-	case cfg.CenterSuppressionRadius < 0:
-		return errors.New("suppression radius cannot be negative")
 	case cfg.SafeZoneErodeSize <= 0 || cfg.SafeZoneErodeSize%2 == 0:
 		return errors.New("safe-zone erosion size must be positive and odd")
 	case cfg.WordPadding < 0:
@@ -146,21 +128,6 @@ func WithMaxFontSize(size float64) Option {
 // WithWordLimit sets the maximum number of candidate words.
 func WithWordLimit(limit int) Option {
 	return func(cfg *Config) { cfg.WordLimit = limit }
-}
-
-// WithMaxAttemptsPerCenter sets the number of spiral samples per center.
-func WithMaxAttemptsPerCenter(attempts int) Option {
-	return func(cfg *Config) { cfg.SpiralStepsPerCenter = attempts }
-}
-
-// WithMinCenterDepthRatio sets the minimum relative depth for search centers.
-func WithMinCenterDepthRatio(ratio float64) Option {
-	return func(cfg *Config) { cfg.MinCenterDepthRatio = ratio }
-}
-
-// WithCenterSuppressionRadius sets center spacing; zero keeps automatic spacing.
-func WithCenterSuppressionRadius(radius int) Option {
-	return func(cfg *Config) { cfg.CenterSuppressionRadius = radius }
 }
 
 // WithSafeZoneErodeSize sets the odd-kernel erosion size for the placement mask.

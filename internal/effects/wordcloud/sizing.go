@@ -9,7 +9,13 @@ import (
 	"github.com/santiagoa58/image-play/internal/textutil"
 )
 
-const placementStepRatio = 0.1
+// minimumFontSize uses a fixed 6px floor unless the caller sets an override.
+func minimumFontSize(cfg Config) float64 {
+	if cfg.MinFontSize > 0 {
+		return cfg.MinFontSize
+	}
+	return 6
+}
 
 // resolveMaxFontSize returns the maximum font size used for frequency scaling.
 //
@@ -30,10 +36,11 @@ func resolveMaxFontSize(
 	if mask == nil || mask.Height <= 0 {
 		return 0, errors.New("cannot determine maximum font size without a valid mask")
 	}
+	minSize := minimumFontSize(cfg)
 
 	candidates := wordHeap.ToSortedSlice()
 	if len(candidates) == 0 {
-		return cfg.MinFontSize, nil
+		return minSize, nil
 	}
 	if len(candidates) > cfg.WordLimit {
 		candidates = candidates[:cfg.WordLimit]
@@ -45,7 +52,7 @@ func resolveMaxFontSize(
 	}
 	defer probe.Close()
 
-	trialMax := math.Max(cfg.MinFontSize, float64(mask.Height))
+	trialMax := math.Max(minSize, float64(mask.Height))
 	placedSizes := make([]float64, 0, 2)
 
 	for _, candidate := range candidates {
@@ -64,12 +71,7 @@ func resolveMaxFontSize(
 			maxForWord = placedSizes[len(placedSizes)-1]
 		}
 
-		placed, err := probe.Place(
-			measured,
-			maxForWord,
-			cfg.MinFontSize,
-			placementStepRatio,
-		)
+		placed, err := probe.Place(measured, maxForWord, minSize)
 		if err != nil {
 			if errors.Is(err, errNoPlacement) {
 				continue
@@ -85,12 +87,12 @@ func resolveMaxFontSize(
 
 	switch len(placedSizes) {
 	case 0:
-		return cfg.MinFontSize, nil
+		return minSize, nil
 	case 1:
-		return math.Max(cfg.MinFontSize, math.Round(placedSizes[0])), nil
+		return math.Max(minSize, math.Round(placedSizes[0])), nil
 	default:
 		a, b := placedSizes[0], placedSizes[1]
 		resolved := 2 * a * b / (a + b)
-		return math.Max(cfg.MinFontSize, math.Round(resolved)), nil
+		return math.Max(minSize, math.Round(resolved)), nil
 	}
 }
