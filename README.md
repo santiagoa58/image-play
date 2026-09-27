@@ -112,8 +112,7 @@ region's occupied fraction ranks legal positions; it never rules out a fit.
 
 Words are processed in frequency order. The default minimum is 6 px for every
 image; a positive `MinFontSize` overrides it. The default maximum is calibrated
-against the image by probing the most important words in a fresh layout; a
-positive `MaxFontSize` overrides that calibration. Frequency
+against the image by probing the most important words in a fresh layout. Frequency
 maps words logarithmically into this range. When a desired size does not fit,
 placement binary-searches whole-pixel font sizes down to the minimum.
 
