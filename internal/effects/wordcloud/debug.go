@@ -39,6 +39,16 @@ func writeMaskDebug(
 		return fmt.Errorf("write mask debug image: binary mask is unavailable")
 	}
 
+	if mask.SubjectMat != nil {
+		if err := writeDebugMat(true, outputPath, "00-subject", *mask.SubjectMat); err != nil {
+			return err
+		}
+	}
+	if mask.DetailMat != nil {
+		if err := writeDebugMat(true, outputPath, "00-detail", *mask.DetailMat); err != nil {
+			return err
+		}
+	}
 	return writeDebugMat(true, outputPath, "01-mask", *mask.BinaryMat)
 }
 

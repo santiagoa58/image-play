@@ -7,6 +7,7 @@ import (
 
 	"github.com/fogleman/gg"
 	"github.com/santiagoa58/image-play/internal/mathutil"
+	"golang.org/x/image/font"
 )
 
 // Word is a measured word-cloud candidate.
@@ -19,7 +20,9 @@ type Word struct {
 	FontSize float64
 	Width    float64
 	Height   float64
-	fontpath string
+	// BaselineX/Y place the font baseline relative to the ink rectangle center.
+	BaselineX, BaselineY float64
+	fontpath             string
 }
 
 // WordMeasurementConfig controls frequency-based sizing and font measurement.
@@ -41,20 +44,7 @@ func MeasureWord(text string, weight int, fontPath string, fontSize float64) (Wo
 		return Word{}, fmt.Errorf("font size must be positive")
 	}
 
-	dc := gg.NewContext(1, 1)
-	width, height, err := measureWord(dc, text, fontPath, fontSize)
-	if err != nil {
-		return Word{}, err
-	}
-
-	return Word{
-		Text:     text,
-		Weight:   weight,
-		FontSize: fontSize,
-		Width:    width,
-		Height:   height,
-		fontpath: fontPath,
-	}, nil
+	return measureWord(text, weight, fontPath, fontSize)
 }
 
 // Resize returns w remeasured at font size f.
@@ -65,19 +55,11 @@ func Resize(w Word, f float64) (Word, error) {
 	if w.FontSize == f {
 		return w, nil
 	}
-	dc := gg.NewContext(1, 1)
-	width, height, err := measureWord(dc, w.Text, w.fontpath, f)
+	resized, err := measureWord(w.Text, w.Weight, w.fontpath, f)
 	if err != nil {
 		return w, fmt.Errorf("resize word: %w", err)
 	}
-	return Word{
-		Text:     w.Text,
-		Weight:   w.Weight,
-		FontSize: f,
-		Width:    width,
-		Height:   height,
-		fontpath: w.fontpath,
-	}, nil
+	return resized, nil
 }
 
 // MeasureWords returns up to cfg.Limit candidates ordered by frequency, with
@@ -95,9 +77,6 @@ func MeasureWords(h WordCounts, cfg WordMeasurementConfig) ([]Word, error) {
 
 	limit := min(cfg.Limit, len(h))
 
-	// A tiny context is sufficient because gg only needs its font face for
-	// measurement.
-	dc := gg.NewContext(1, 1)
 	sortedWords := h.ToSortedSlice()[:limit]
 
 	countRange := mathutil.Range{
@@ -120,18 +99,11 @@ func MeasureWords(h WordCounts, cfg WordMeasurementConfig) ([]Word, error) {
 				fontSizeRange,
 			)
 		}
-		width, height, err := measureWord(dc, w.Word, cfg.FontPath, size)
+		measured, err := measureWord(w.Word, w.Count, cfg.FontPath, size)
 		if err != nil {
 			return nil, fmt.Errorf("measure word: %w", err)
 		}
-		words[i] = Word{
-			Text:     w.Word,
-			Weight:   w.Count,
-			FontSize: size,
-			Width:    width,
-			Height:   height,
-			fontpath: cfg.FontPath,
-		}
+		words[i] = measured
 	}
 
 	// Frequency remains the primary hierarchy. When frequencies tie, place the
@@ -167,11 +139,22 @@ func (cfg WordMeasurementConfig) validate() error {
 	}
 }
 
-// measureWord returns the rendered bounds of text at fontSize.
-func measureWord(ctx *gg.Context, txt, fontPath string, fontSize float64) (w, h float64, err error) {
-	if err := ctx.LoadFontFace(fontPath, fontSize); err != nil {
-		return 0, 0, fmt.Errorf("failed to load font %q at size %.1f: %w", fontPath, fontSize, err)
+// measureWord encloses actual letter ink, rather than advances or a generic
+// line height. The baseline offsets center those same bounds during drawing.
+func measureWord(text string, weight int, fontPath string, fontSize float64) (Word, error) {
+	face, err := gg.LoadFontFace(fontPath, fontSize)
+	if err != nil {
+		return Word{}, fmt.Errorf("failed to load font %q at size %.1f: %w", fontPath, fontSize, err)
 	}
-	w, h = ctx.MeasureString(txt)
-	return w, h, nil
+	defer face.Close()
+	bounds, _ := font.BoundString(face, text)
+	// Include the baseline origin. A positive bearing must not make a larger
+	// font produce a narrower box merely because its left edge rounded up.
+	left, top := min(0, bounds.Min.X.Floor()), min(0, bounds.Min.Y.Floor())
+	right, bottom := max(0, bounds.Max.X.Ceil()), max(0, bounds.Max.Y.Ceil())
+	return Word{
+		Text: text, Weight: weight, FontSize: fontSize, fontpath: fontPath,
+		Width: float64(right - left), Height: float64(bottom - top),
+		BaselineX: -float64(left+right) / 2, BaselineY: -float64(top+bottom) / 2,
+	}, nil
 }

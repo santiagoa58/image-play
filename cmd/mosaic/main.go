@@ -24,10 +24,14 @@ const (
 )
 
 type options struct {
-	inputPath  string
-	outputPath string
-	textPath   string
-	fontPath   string
+	inputPath       string
+	outputPath      string
+	textPath        string
+	fontPath        string
+	subjectMaskPath string
+	uppercase       bool
+	colorMode       string
+	debug           bool
 }
 
 func main() {
@@ -39,7 +43,11 @@ func main() {
 
 func run() error {
 	var (
-		effectName = flag.String(
+		subjectMaskPath = flag.String("mask", "", "Optional wordcloud mask: white subject, black background; same dimensions as input")
+		uppercase       = flag.Bool("uppercase", false, "Display wordcloud text in uppercase")
+		colorMode       = flag.String("color-mode", "representative", "Wordcloud colors: representative or mean")
+		debug           = flag.Bool("debug", false, "Write intermediate wordcloud diagnostics")
+		effectName      = flag.String(
 			"effect",
 			"",
 			"Effect to apply: wordcloud or textmosaic [required]",
@@ -81,10 +89,14 @@ func run() error {
 	}
 
 	opts := options{
-		inputPath:  *inputPath,
-		outputPath: *outputPath,
-		textPath:   *textPath,
-		fontPath:   *fontPath,
+		inputPath:       *inputPath,
+		outputPath:      *outputPath,
+		textPath:        *textPath,
+		fontPath:        *fontPath,
+		subjectMaskPath: *subjectMaskPath,
+		uppercase:       *uppercase,
+		colorMode:       *colorMode,
+		debug:           *debug,
 	}
 	if err := validateRequiredFlags(opts); err != nil {
 		flag.Usage()
@@ -126,6 +138,10 @@ func runEffect(selected effect, opts options) error {
 			wordcloud.WithOutputPath(opts.outputPath),
 			wordcloud.WithTextPath(opts.textPath),
 			wordcloud.WithFontPath(opts.fontPath),
+			wordcloud.WithSubjectMaskPath(opts.subjectMaskPath),
+			wordcloud.WithUppercase(opts.uppercase),
+			wordcloud.WithColorMode(wordCloudColorMode(opts.colorMode)),
+			wordcloud.WithDebug(opts.debug),
 		)
 		if err := wordcloud.Generate(cfg); err != nil {
 			return fmt.Errorf("generate word cloud: %w", err)
@@ -164,4 +180,11 @@ func validateRequiredFlags(opts options) error {
 	}
 
 	return nil
+}
+
+func wordCloudColorMode(mode string) string {
+	if mode == "" {
+		return "representative"
+	}
+	return mode
 }
