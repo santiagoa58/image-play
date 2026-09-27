@@ -162,7 +162,7 @@ func Generate(cfg Config) error {
 	if len(placed) == 0 {
 		return errors.New("no words could be placed inside the image shape")
 	}
-	if err := Render(mask.Width, mask.Height, cfg.FontPath, placed, outputPath, cfg.Debug); err != nil {
+	if err := Render(mask.Source, mask.DarkBackground, cfg.FontPath, placed, outputPath, cfg.Debug); err != nil {
 		return err
 	}
 

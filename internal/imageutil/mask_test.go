@@ -338,3 +338,131 @@ func setBGRARect(
 		}
 	}
 }
+
+func TestBuildBinaryMaskSelectsBrightSubjectOnDarkBackground(t *testing.T) {
+	const width, height = 40, 30
+	pixels := make([]byte, width*height*3)
+	// A bright subject with a large dark interior hole, surrounded by black.
+	for y := 5; y < 25; y++ {
+		for x := 5; x < 35; x++ {
+			if x >= 15 && x < 25 && y >= 10 && y < 20 {
+				continue
+			}
+			i := (y*width + x) * 3
+			pixels[i], pixels[i+1], pixels[i+2] = 20, 100, 240
+		}
+	}
+	img := newTestMat(t, height, width, gocv.MatTypeCV8UC3, pixels)
+	defer img.Close()
+	binary, dark, err := prepareBinaryMask(img, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer binary.Close()
+	if !dark {
+		t.Fatal("black border should select a dark background")
+	}
+	for _, p := range []struct {
+		x, y int
+		want uint8
+	}{{8, 8, 255}, {0, 0, 0}, {20, 15, 0}} {
+		if got := binary.GetUCharAt(p.y, p.x); got != p.want {
+			t.Errorf("mask(%d,%d) = %d, want %d", p.x, p.y, got, p.want)
+		}
+	}
+}
+
+func TestPrepareMaskVaderPreservesColorsAndExcludesBackground(t *testing.T) {
+	mask, err := PrepareMask("../../testdata/images/darth_vader_og.jpg", 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mask.Close()
+	if !mask.DarkBackground {
+		t.Fatal("Vader should have a dark background")
+	}
+	if mask.Source.Bounds().Dx() != mask.Width || mask.Source.Bounds().Dy() != mask.Height {
+		t.Fatal("source and mask dimensions differ")
+	}
+	if got := mask.BinaryMat.GetUCharAt(0, 0); got != 0 {
+		t.Fatalf("background corner = %d, want 0", got)
+	}
+	if selected := gocv.CountNonZero(*mask.BinaryMat); selected == 0 || selected > mask.Width*mask.Height/2 {
+		t.Fatalf("selected pixels = %d; expected helmet highlights, not background", selected)
+	}
+	redPixels := 0
+	for y := 0; y < mask.Height; y++ {
+		for x := 0; x < mask.Width; x++ {
+			if mask.BinaryMat.GetUCharAt(y, x) == 0 {
+				continue
+			}
+			r, g, b, _ := mask.Source.At(x, y).RGBA()
+			if r > g && r > b {
+				redPixels++
+			}
+		}
+	}
+	if redPixels == 0 {
+		t.Fatal("source colors were lost")
+	}
+}
+
+func TestDarkBackgroundPreservesSaturatedRedBesideBrightYellow(t *testing.T) {
+	const width, height = 40, 30
+	pixels := make([]byte, width*height*3)
+	for y := 5; y < 25; y++ {
+		for x := 5; x < 35; x++ {
+			i := (y*width + x) * 3
+			pixels[i+2] = 180
+			if x >= 20 {
+				pixels[i+1], pixels[i+2] = 255, 255
+			}
+		}
+	}
+	img := newTestMat(t, height, width, gocv.MatTypeCV8UC3, pixels)
+	defer img.Close()
+	binary, err := buildBinaryMask(img, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer binary.Close()
+	for _, x := range []int{10, 30} {
+		if got := binary.GetUCharAt(15, x); got != 255 {
+			t.Errorf("colored subject at x=%d excluded", x)
+		}
+	}
+}
+
+func TestDarkBackgroundCleanupKeepsTransparentHoleExcluded(t *testing.T) {
+	const width, height = 30, 20
+	pixels := make([]byte, width*height*4)
+	for i := 3; i < len(pixels); i += 4 {
+		pixels[i] = 255
+	}
+	for y := 4; y < 16; y++ {
+		for x := 5; x < 25; x++ {
+			i := (y*width + x) * 4
+			pixels[i+2] = 220
+		}
+	}
+	hole := (10*width + 15) * 4
+	pixels[hole], pixels[hole+1], pixels[hole+2], pixels[hole+3] = 255, 255, 255, 0
+	img := newTestMat(t, height, width, gocv.MatTypeCV8UC4, pixels)
+	defer img.Close()
+	binary, dark, err := prepareBinaryMask(img, 8)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer binary.Close()
+	if !dark {
+		t.Fatal("expected dark background")
+	}
+	for _, p := range []struct {
+		x, y int
+		want uint8
+	}{{0, 0, 0}, {14, 10, 255}, {15, 10, 0}} {
+		if got := binary.GetUCharAt(p.y, p.x); got != p.want {
+			t.Errorf("mask(%d,%d) = %d, want %d", p.x, p.y, got, p.want)
+		}
+	}
+}

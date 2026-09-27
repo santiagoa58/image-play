@@ -10,7 +10,7 @@ import (
 // Defaults are provided by NewConfig. Most callers only need to supply the
 // input image, text file, font, and optional output path.
 type Config struct {
-	// InputPath is the source image used to derive the placement silhouette.
+	// InputPath supplies the placement silhouette, word colors, and background clue.
 	InputPath string
 	// OutputPath is the target PNG. When empty, Generate derives one from InputPath.
 	OutputPath string
