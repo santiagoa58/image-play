@@ -27,13 +27,15 @@ Noto Sans Mono font.
   </tr>
   <tr>
     <td><img src="testdata/images/gen-img-couple.png" width="280" alt="Original couple image"></td>
-    <td><img src="docs/assets/examples/gen-img-couple-textmosaic.webp" width="280" alt="Text mosaic effect generated from the couple image"></td>
-    <td><img src="docs/assets/examples/gen-img-couple-wordcloud.webp" width="280" alt="Word cloud effect generated from the couple image"></td>
+    <td><img src="docs/assets/examples/gen-img-couple-textmosaic-preview.png" width="280" alt="Text mosaic effect generated from the couple image"></td>
+    <td><img src="docs/assets/examples/gen-img-couple-wordcloud.png" width="280" alt="Word cloud effect generated from the couple image"></td>
   </tr>
 </table>
 
-The README previews are resized for display; the effects themselves render at
-the configured/source resolution.
+The previews are displayed smaller than their 1024 × 1024 output resolution.
+The text mosaic preview has a dark background so its light text is visible;
+the [generated PNG](docs/assets/examples/gen-img-couple-textmosaic.png) has a
+transparent background.
 
 ## Word cloud
 
@@ -43,7 +45,7 @@ words by frequency, then packs those words inside the silhouette.
 ```bash
 go run ./cmd/mosaic \
   -effect wordcloud \
-  -in testdata/images/deepseek-logo-icon.png \
+  -in testdata/images/gen-img-couple.png \
   -text testdata/text/sample_text_message.txt \
   -font "fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
   -out output.png
