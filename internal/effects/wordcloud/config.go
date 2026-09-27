@@ -18,20 +18,14 @@ type Config struct {
 	TextPath string
 	// FontPath points to the TTF/OTF font used for measurement and rendering.
 	FontPath string
-
 	// MinFontSize overrides the 6px minimum when positive. Zero uses 6px.
 	MinFontSize float64
-	// MaxFontSize overrides automatic maximum-size calibration when positive.
-	// Zero lets the layout determine a sensible maximum from the image shape.
-	MaxFontSize float64
 	// WordLimit is the maximum number of candidate words considered. It is not
 	// a promise that every candidate will be placed.
 	WordLimit int
-
 	// SafeZoneErodeSize shrinks the binary mask before placement so rendered
 	// words have a small safety margin from the silhouette edge. It must be odd.
 	SafeZoneErodeSize int
-
 	// AlphaThreshold treats source pixels at or below this alpha as invisible.
 	AlphaThreshold uint8
 	// WordPadding expands each rectangular footprint before collision checks.
@@ -39,7 +33,6 @@ type Config struct {
 	// Angles lists allowed clockwise rotations in preference order within the
 	// selected shape region. Placement supports 0 and 90 degrees.
 	Angles []int
-
 	// Debug writes intermediate mask, distance, center, occupancy, and output images.
 	Debug bool
 }
@@ -88,10 +81,6 @@ func (cfg Config) Validate() error {
 		return errors.New("font path is required")
 	case cfg.MinFontSize < 0:
 		return errors.New("minimum font size must be zero (automatic) or positive")
-	case cfg.MaxFontSize < 0:
-		return errors.New("maximum font size cannot be negative")
-	case cfg.MaxFontSize > 0 && cfg.MaxFontSize < cfg.MinFontSize:
-		return errors.New("maximum font size must be zero (automatic) or >= minimum")
 	case cfg.WordLimit <= 0:
 		return errors.New("word limit must be positive")
 	case cfg.SafeZoneErodeSize <= 0 || cfg.SafeZoneErodeSize%2 == 0:
@@ -117,12 +106,6 @@ func WithFontPath(path string) Option { return func(cfg *Config) { cfg.FontPath 
 // WithMinFontSize sets the minimum placement font size.
 func WithMinFontSize(size float64) Option {
 	return func(cfg *Config) { cfg.MinFontSize = size }
-}
-
-// WithMaxFontSize overrides automatic maximum-size calibration.
-// Pass zero to use automatic sizing.
-func WithMaxFontSize(size float64) Option {
-	return func(cfg *Config) { cfg.MaxFontSize = size }
 }
 
 // WithWordLimit sets the maximum number of candidate words.

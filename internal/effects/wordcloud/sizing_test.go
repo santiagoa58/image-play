@@ -11,18 +11,6 @@ import (
 	"gocv.io/x/gocv"
 )
 
-func TestResolveMaxFontSizeUsesConfiguredOverride(t *testing.T) {
-	cfg := NewConfig(WithMaxFontSize(37))
-
-	got, err := resolveMaxFontSize(nil, nil, cfg)
-	if err != nil {
-		t.Fatalf("resolveMaxFontSize() error = %v, want nil", err)
-	}
-	if got != 37 {
-		t.Fatalf("resolveMaxFontSize() = %v, want 37", got)
-	}
-}
-
 func TestResolveMaxFontSizeUsesLayout(t *testing.T) {
 	mask := newSizingTestMask(t, 240, 160)
 	cfg := NewConfig(

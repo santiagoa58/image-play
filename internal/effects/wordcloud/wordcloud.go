@@ -48,9 +48,6 @@ func Generate(cfg Config) error {
 	}
 	defer mask.Close()
 	minFontSize := minimumFontSize(cfg)
-	if cfg.MaxFontSize > 0 && cfg.MaxFontSize < minFontSize {
-		return fmt.Errorf("maximum font size %.1fpx is below the resolved minimum %.1fpx", cfg.MaxFontSize, minFontSize)
-	}
 
 	if err := writeMaskDebug(cfg.Debug, outputPath, mask); err != nil {
 		return fmt.Errorf("write mask diagnostics: %w", err)
@@ -75,7 +72,6 @@ func Generate(cfg Config) error {
 		"resolved font range",
 		"min", minFontSize,
 		"max", maxFontSize,
-		"automatic_max", cfg.MaxFontSize == 0,
 	)
 
 	words, err := textutil.MeasureWords(

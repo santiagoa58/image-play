@@ -21,9 +21,6 @@ func TestNewConfigUsesDefaultsAndAppliesOptions(t *testing.T) {
 	if got.MinFontSize != 0 {
 		t.Errorf("MinFontSize = %v, want automatic default 0", got.MinFontSize)
 	}
-	if got.MaxFontSize != 0 {
-		t.Errorf("MaxFontSize = %v, want default 0 (automatic)", got.MaxFontSize)
-	}
 }
 
 func TestConfigValidate(t *testing.T) {

@@ -93,10 +93,7 @@ func MeasureWords(h WordCounts, cfg WordMeasurementConfig) ([]Word, error) {
 		return nil, nil
 	}
 
-	limit := cfg.Limit
-	if limit > len(h) {
-		limit = len(h)
-	}
+	limit := min(cfg.Limit, len(h))
 
 	// A tiny context is sufficient because gg only needs its font face for
 	// measurement.

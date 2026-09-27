@@ -19,8 +19,7 @@ func minimumFontSize(cfg Config) float64 {
 
 // resolveMaxFontSize returns the maximum font size used for frequency scaling.
 //
-// A positive Config.MaxFontSize is an explicit override. Otherwise the layout
-// calibrates itself by trying to place the most important candidate words in a
+// The layout calibrates itself by trying to place the most important candidate words in a
 // fresh placement context. The probe starts at the image height, mirroring the
 // general strategy used by amueller/word_cloud, then uses the harmonic mean of
 // the first two successful placed sizes so one unusually easy word does not
@@ -30,9 +29,6 @@ func resolveMaxFontSize(
 	wordHeap textutil.WordCounts,
 	cfg Config,
 ) (float64, error) {
-	if cfg.MaxFontSize > 0 {
-		return cfg.MaxFontSize, nil
-	}
 	if mask == nil || mask.Height <= 0 {
 		return 0, errors.New("cannot determine maximum font size without a valid mask")
 	}
