@@ -19,7 +19,8 @@ type Config struct {
 	// FontPath points to the TTF/OTF font used for measurement and rendering.
 	FontPath string
 
-	// MinFontSize is the smallest size placement is allowed to try.
+	// MinFontSize overrides the image-relative minimum when positive. Zero
+	// uses max(6px, 1% of the image's shorter side).
 	MinFontSize float64
 	// MaxFontSize overrides automatic maximum-size calibration when positive.
 	// Zero lets the layout determine a sensible maximum from the image shape.
@@ -69,7 +70,7 @@ type Option func(*Config)
 //	)
 func NewConfig(options ...Option) Config {
 	cfg := Config{
-		MinFontSize:             6,
+		MinFontSize:             0,
 		WordLimit:               500,
 		SpiralStepsPerCenter:    500,
 		MinCenterDepthRatio:     0.01,
@@ -98,8 +99,8 @@ func (cfg Config) Validate() error {
 		return errors.New("text path is required")
 	case strings.TrimSpace(cfg.FontPath) == "":
 		return errors.New("font path is required")
-	case cfg.MinFontSize <= 0:
-		return errors.New("minimum font size must be positive")
+	case cfg.MinFontSize < 0:
+		return errors.New("minimum font size must be zero (automatic) or positive")
 	case cfg.MaxFontSize < 0:
 		return errors.New("maximum font size cannot be negative")
 	case cfg.MaxFontSize > 0 && cfg.MaxFontSize < cfg.MinFontSize:

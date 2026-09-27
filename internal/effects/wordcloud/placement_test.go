@@ -11,387 +11,121 @@ import (
 	"gocv.io/x/gocv"
 )
 
-func TestPlaceAttemptsMinimumFontSize(t *testing.T) {
-	ctx := newPlacementTestContext(
-		t,
-		image.Rect(0, 0, 100, 100),
-		[]image.Point{image.Pt(50, 50)},
-		0,
-	)
-	word := testWord(20, 10)
-	word.FontSize = 5
-
-	placed, err := ctx.Place(word, 5, 5, 0.1)
+func TestPlaceFindsAPositionOutsideOldSearchCenters(t *testing.T) {
+	ctx := placementContextForShape(t, image.Rect(70, 70, 92, 90), 0)
+	word := textutil.Word{Text: "test", FontSize: 10, Width: 12, Height: 7}
+	placed, err := ctx.Place(word, 10, 10)
 	if err != nil {
-		t.Fatalf("Place() error = %v, want nil", err)
+		t.Fatal(err)
 	}
-	if placed.Word.FontSize != 5 {
-		t.Errorf("placed font size = %v, want 5", placed.Word.FontSize)
-	}
-}
-
-func TestPlaceReturnsNoPlacementError(t *testing.T) {
-	ctx := newPlacementTestContext(
-		t,
-		image.Rect(40, 40, 60, 60),
-		[]image.Point{image.Pt(50, 50)},
-		0,
-	)
-	word := testWord(30, 30)
-	word.FontSize = 5
-
-	_, err := ctx.Place(word, 5, 5, 0.1)
-	if !errors.Is(err, errNoPlacement) {
-		t.Fatalf("Place() error = %v, want errNoPlacement", err)
+	if !layout.RectAt(image.Pt(int(placed.X), int(placed.Y)), ctx.footprint(word, placed.Angle)).In(image.Rect(70, 70, 92, 90)) {
+		t.Fatalf("word placed outside the only available region: %+v", placed)
 	}
 }
 
-func TestRectanglePlacementSucceedsInsideSafeZone(t *testing.T) {
-	ctx := newPlacementTestContext(
-		t,
-		image.Rect(0, 0, 100, 100),
-		[]image.Point{image.Pt(50, 50)},
-		0,
-	)
-
-	placed, ok := ctx.tryPlaceAtSize(testWord(20, 10))
-	if !ok {
-		t.Fatal("tryPlaceAtSize() = false, want true")
-	}
-	if placed.X != 50 || placed.Y != 50 {
-		t.Errorf(
-			"placed center = (%v,%v), want (50,50)",
-			placed.X,
-			placed.Y,
-		)
-	}
-	if placed.Angle != 0 {
-		t.Errorf("placed angle = %d, want 0", placed.Angle)
-	}
-}
-
-func TestRectanglePlacementFallsBackToVertical(t *testing.T) {
-	ctx := newPlacementTestContext(
-		t,
-		image.Rect(46, 20, 54, 80),
-		[]image.Point{image.Pt(50, 50)},
-		0,
-	)
-	ctx.angles = []int{0, 90}
-
-	word := testWord(30, 6)
-	placed, ok := ctx.tryPlaceAtSize(word)
-	if !ok {
-		t.Fatal("tryPlaceAtSize() = false, want vertical placement")
+func TestPlaceUsesVerticalWhenHorizontalCannotFit(t *testing.T) {
+	ctx := placementContextForShape(t, image.Rect(46, 20, 54, 80), 0)
+	word := textutil.Word{Text: "test", FontSize: 10, Width: 30, Height: 6}
+	placed, err := ctx.Place(word, 10, 10)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if placed.Angle != 90 {
-		t.Errorf("placed angle = %d, want 90", placed.Angle)
-	}
-
-	if got := gocv.CountNonZero(*ctx.occupancy); got != 30*6 {
-		t.Errorf("occupied area = %d, want %d", got, 30*6)
+		t.Fatalf("angle = %d, want vertical", placed.Angle)
 	}
 }
 
-func TestRectanglePlacementSearchesHorizontalBeforeVertical(t *testing.T) {
-	ctx := newPlacementTestContext(
-		t,
-		image.Rect(0, 0, 100, 100),
-		[]image.Point{
-			image.Pt(25, 50),
-			image.Pt(75, 50),
-		},
-		0,
-	)
-	ctx.angles = []int{0, 90}
-
-	resetPlacementSafeZone(t, ctx, []image.Rectangle{
-		image.Rect(21, 30, 29, 70),
-		image.Rect(55, 46, 95, 54),
-	})
-
-	placed, ok := ctx.tryPlaceAtSize(testWord(30, 6))
-	if !ok {
-		t.Fatal("tryPlaceAtSize() = false, want true")
-	}
-	if placed.Angle != 0 {
-		t.Errorf("placed angle = %d, want 0", placed.Angle)
-	}
-	if placed.X != 75 || placed.Y != 50 {
-		t.Errorf(
-			"placed center = (%v,%v), want horizontal slot at (75,50)",
-			placed.X,
-			placed.Y,
-		)
+func TestPlaceSkipsOnlyWhenMinimumCannotFit(t *testing.T) {
+	ctx := placementContextForShape(t, image.Rect(40, 40, 45, 45), 0)
+	word := textutil.Word{Text: "test", FontSize: 10, Width: 30, Height: 8}
+	_, err := ctx.Place(word, 10, 10)
+	if !errors.Is(err, errNoPlacement) {
+		t.Fatalf("error = %v, want errNoPlacement", err)
 	}
 }
 
-func TestRectanglePlacementPrefersHorizontalWhenBothFit(t *testing.T) {
-	ctx := newPlacementTestContext(
-		t,
-		image.Rect(0, 0, 100, 100),
-		[]image.Point{image.Pt(50, 50)},
-		0,
-	)
-	ctx.angles = []int{0, 90}
-
-	placed, ok := ctx.tryPlaceAtSize(testWord(20, 10))
-	if !ok {
-		t.Fatal("tryPlaceAtSize() = false, want true")
+func TestPlaceFindsLargestFittingSize(t *testing.T) {
+	ctx := placementContextForShape(t, image.Rect(20, 30, 80, 70), 1)
+	word, err := textutil.MeasureWord("example", 10, wordcloudTestFontPath(t), 80)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if placed.Angle != 0 {
-		t.Errorf("placed angle = %d, want 0", placed.Angle)
+	placed, err := ctx.Place(word, 80, 6)
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-func TestRectanglePlacementRejectsSafeZoneBoundaryCrossing(t *testing.T) {
-	ctx := newPlacementTestContext(
-		t,
-		image.Rect(20, 20, 80, 80),
-		[]image.Point{image.Pt(25, 50)},
-		0,
-	)
-
-	if _, ok := ctx.tryPlaceAtSize(testWord(20, 10)); ok {
-		t.Fatal("tryPlaceAtSize() = true for a word crossing the safe-zone boundary")
+	if placed.Word.FontSize >= 80 || placed.Word.FontSize < 6 {
+		t.Fatalf("size = %v, expected a smaller fitting size", placed.Word.FontSize)
+	}
+	// Query a fresh copy of the shape: placement has already reserved space in ctx.
+	fresh := placementContextForShape(t, image.Rect(20, 30, 80, 70), 1)
+	next, err := textutil.Resize(word, placed.Word.FontSize+1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fits, err := fresh.fits(next)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fits {
+		t.Fatalf("size %v also fits; selected %v", next.FontSize, placed.Word.FontSize)
 	}
 }
 
-func TestRectanglePlacementRejectsImageBoundsCrossing(t *testing.T) {
-	ctx := newPlacementTestContext(
-		t,
-		image.Rect(0, 0, 100, 100),
-		[]image.Point{image.Pt(5, 50)},
-		0,
-	)
-
-	if _, ok := ctx.tryPlaceAtSize(testWord(20, 10)); ok {
-		t.Fatal("tryPlaceAtSize() = true for a word crossing the image bounds")
+func TestFootprintAccountsForPaddingAndRotation(t *testing.T) {
+	ctx := placementContextForShape(t, image.Rect(0, 0, 100, 100), 3)
+	word := textutil.Word{Width: 20, Height: 10}
+	if got := ctx.footprint(word, 0); got != image.Pt(26, 16) {
+		t.Errorf("horizontal footprint = %v, want (26,16)", got)
 	}
-}
-
-func TestRectanglePlacementRejectsOccupiedCenter(t *testing.T) {
-	ctx := newPlacementTestContext(
-		t,
-		image.Rect(0, 0, 100, 100),
-		[]image.Point{image.Pt(50, 50)},
-		0,
-	)
-	word := testWord(20, 10)
-
-	if _, ok := ctx.tryPlaceAtSize(word); !ok {
-		t.Fatal("first tryPlaceAtSize() = false, want true")
-	}
-	if _, ok := ctx.tryPlaceAtSize(word); ok {
-		t.Fatal("second tryPlaceAtSize() = true at an occupied center")
-	}
-}
-
-func TestRectanglePlacementUsesSeparatedCenters(t *testing.T) {
-	ctx := newPlacementTestContext(
-		t,
-		image.Rect(0, 0, 100, 100),
-		[]image.Point{
-			image.Pt(30, 50),
-			image.Pt(70, 50),
-		},
-		0,
-	)
-	word := testWord(20, 10)
-
-	first, ok := ctx.tryPlaceAtSize(word)
-	if !ok {
-		t.Fatal("first tryPlaceAtSize() = false, want true")
-	}
-	second, ok := ctx.tryPlaceAtSize(word)
-	if !ok {
-		t.Fatal("second tryPlaceAtSize() = false, want true")
-	}
-
-	if first.X != 30 || first.Y != 50 {
-		t.Errorf(
-			"first center = (%v,%v), want (30,50)",
-			first.X,
-			first.Y,
-		)
-	}
-	if second.X != 70 || second.Y != 50 {
-		t.Errorf(
-			"second center = (%v,%v), want (70,50)",
-			second.X,
-			second.Y,
-		)
-	}
-}
-
-func TestRectanglePlacementPaddingIncreasesOccupiedArea(t *testing.T) {
-	withoutPadding := newPlacementTestContext(
-		t,
-		image.Rect(0, 0, 100, 100),
-		[]image.Point{image.Pt(50, 50)},
-		0,
-	)
-	withPadding := newPlacementTestContext(
-		t,
-		image.Rect(0, 0, 100, 100),
-		[]image.Point{image.Pt(50, 50)},
-		3,
-	)
-	word := testWord(20, 10)
-
-	if _, ok := withoutPadding.tryPlaceAtSize(word); !ok {
-		t.Fatal("tryPlaceAtSize() without padding = false, want true")
-	}
-	if _, ok := withPadding.tryPlaceAtSize(word); !ok {
-		t.Fatal("tryPlaceAtSize() with padding = false, want true")
-	}
-
-	withoutArea := gocv.CountNonZero(*withoutPadding.occupancy)
-	withArea := gocv.CountNonZero(*withPadding.occupancy)
-
-	if withoutArea != 20*10 {
-		t.Errorf("occupied area without padding = %d, want 200", withoutArea)
-	}
-	if withArea != 26*16 {
-		t.Errorf("occupied area with padding = %d, want 416", withArea)
-	}
-	if withArea <= withoutArea {
-		t.Errorf(
-			"occupied area with padding = %d, want greater than %d",
-			withArea,
-			withoutArea,
-		)
+	if got := ctx.footprint(word, 90); got != image.Pt(16, 26) {
+		t.Errorf("vertical footprint = %v, want (16,26)", got)
 	}
 }
 
 func TestSafeZoneErodeSizeChangesSafeZoneArea(t *testing.T) {
-	const size = 100
-
-	binary := gocv.NewMatWithSize(
-		size,
-		size,
-		gocv.MatTypeCV8UC1,
-	)
+	binary := gocv.NewMatWithSize(100, 100, gocv.MatTypeCV8UC1)
 	defer binary.Close()
-
 	shape := binary.Region(image.Rect(10, 10, 90, 90))
 	shape.SetTo(gocv.NewScalar(255, 0, 0, 0))
 	shape.Close()
-
 	mask := &imageutil.Mask{BinaryMat: &binary}
 
-	safe3, occupancy3, err := newValidationMasks(mask, 3)
+	safe3, occ3, err := newValidationMasks(mask, 3)
 	if err != nil {
-		t.Fatalf("newValidationMasks(..., 3) error = %v", err)
+		t.Fatal(err)
 	}
 	defer safe3.Close()
-	defer occupancy3.Close()
-
-	safe7, occupancy7, err := newValidationMasks(mask, 7)
+	defer occ3.Close()
+	safe7, occ7, err := newValidationMasks(mask, 7)
 	if err != nil {
-		t.Fatalf("newValidationMasks(..., 7) error = %v", err)
+		t.Fatal(err)
 	}
 	defer safe7.Close()
-	defer occupancy7.Close()
-
-	area3 := gocv.CountNonZero(*safe3)
-	area7 := gocv.CountNonZero(*safe7)
-
-	if area7 >= area3 {
-		t.Errorf(
-			"safe-zone area with 7x7 erosion = %d, want less than 3x3 area %d",
-			area7,
-			area3,
-		)
+	defer occ7.Close()
+	if gocv.CountNonZero(*safe7) >= gocv.CountNonZero(*safe3) {
+		t.Fatal("a larger safe-zone margin should leave less room")
 	}
 }
 
-func newPlacementTestContext(
-	t *testing.T,
-	safeRect image.Rectangle,
-	points []image.Point,
-	padding float64,
-) *PlacementContext {
+func placementContextForShape(t *testing.T, rect image.Rectangle, padding int) *PlacementContext {
 	t.Helper()
-
-	const size = 100
-
-	safeZone := gocv.NewMatWithSize(
-		size,
-		size,
-		gocv.MatTypeCV8UC1,
-	)
-	safeROI := safeZone.Region(safeRect)
-	safeROI.SetTo(gocv.NewScalar(255, 0, 0, 0))
-	safeROI.Close()
-
-	occupancy := gocv.NewMatWithSize(
-		size,
-		size,
-		gocv.MatTypeCV8UC1,
-	)
-
-	pixels, err := safeZone.DataPtrUint8()
+	binary := gocv.NewMatWithSize(100, 100, gocv.MatTypeCV8UC1)
+	shape := binary.Region(rect)
+	shape.SetTo(gocv.NewScalar(255, 0, 0, 0))
+	shape.Close()
+	depth, err := imageutil.ComputeDistanceTransform(binary)
 	if err != nil {
-		safeZone.Close()
-		occupancy.Close()
-		t.Fatalf("safeZone.DataPtrUint8() error = %v", err)
+		binary.Close()
+		t.Fatal(err)
 	}
-	space, err := layout.NewSpace(size, size, pixels)
+	mask := &imageutil.Mask{BinaryMat: &binary, DistMat: depth}
+	t.Cleanup(mask.Close)
+	ctx, err := NewPlacementContext(mask, NewConfig())
 	if err != nil {
-		safeZone.Close()
-		occupancy.Close()
-		t.Fatalf("layout.NewSpace() error = %v", err)
+		t.Fatal(err)
 	}
-
-	centers := make([]Center, len(points))
-	for i, point := range points {
-		centers[i] = Center{Point: point}
-	}
-
-	ctx := &PlacementContext{
-		space:       space,
-		safeZone:    &safeZone,
-		occupancy:   &occupancy,
-		centers:     centers,
-		maxAttempts: 1,
-		wordPadding: padding,
-		angles:      []int{0},
-	}
+	ctx.wordPadding = padding
 	t.Cleanup(ctx.Close)
-
 	return ctx
-}
-
-func resetPlacementSafeZone(
-	t *testing.T,
-	ctx *PlacementContext,
-	rects []image.Rectangle,
-) {
-	t.Helper()
-
-	ctx.safeZone.SetTo(gocv.NewScalar(0, 0, 0, 0))
-	for _, rect := range rects {
-		roi := ctx.safeZone.Region(rect)
-		roi.SetTo(gocv.NewScalar(255, 0, 0, 0))
-		roi.Close()
-	}
-
-	pixels, err := ctx.safeZone.DataPtrUint8()
-	if err != nil {
-		t.Fatalf("safeZone.DataPtrUint8() error = %v", err)
-	}
-	space, err := layout.NewSpace(ctx.safeZone.Cols(), ctx.safeZone.Rows(), pixels)
-	if err != nil {
-		t.Fatalf("layout.NewSpace() error = %v", err)
-	}
-	ctx.space = space
-}
-
-func testWord(width, height float64) textutil.Word {
-	return textutil.Word{
-		Text:   "test",
-		Width:  width,
-		Height: height,
-	}
 }

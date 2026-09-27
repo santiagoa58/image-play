@@ -47,6 +47,7 @@ func Generate(cfg Config) error {
 		return fmt.Errorf("prepare mask: %w", err)
 	}
 	defer mask.Close()
+	minFontSize := minimumFontSize(mask, cfg)
 
 	if err := writeMaskDebug(cfg.Debug, outputPath, mask); err != nil {
 		return fmt.Errorf("write mask diagnostics: %w", err)
@@ -69,7 +70,7 @@ func Generate(cfg Config) error {
 	}
 	logger.Info(
 		"resolved font range",
-		"min", cfg.MinFontSize,
+		"min", minFontSize,
 		"max", maxFontSize,
 		"automatic_max", cfg.MaxFontSize == 0,
 	)
@@ -78,7 +79,7 @@ func Generate(cfg Config) error {
 		wordCounts,
 		textutil.WordMeasurementConfig{
 			FontPath:    cfg.FontPath,
-			MinFontSize: cfg.MinFontSize,
+			MinFontSize: minFontSize,
 			MaxFontSize: maxFontSize,
 			Limit:       cfg.WordLimit,
 		},
@@ -95,15 +96,6 @@ func Generate(cfg Config) error {
 		return fmt.Errorf("create placement context: %w", err)
 	}
 	defer placeCtx.Close()
-
-	if err := writeCentersDebug(
-		cfg.Debug,
-		outputPath,
-		mask,
-		placeCtx.centers,
-	); err != nil {
-		return fmt.Errorf("write center diagnostics: %w", err)
-	}
 
 	// 6. Place words
 	logger.Info("placing words")
@@ -122,7 +114,7 @@ func Generate(cfg Config) error {
 			prevFontSize = last.Word.FontSize
 		}
 
-		p, err := placeCtx.Place(w, prevFontSize, cfg.MinFontSize, placementStepRatio)
+		p, err := placeCtx.Place(w, prevFontSize, minFontSize)
 		if err != nil {
 			if errors.Is(err, errNoPlacement) {
 				skipped++
