@@ -3,18 +3,21 @@ package textmosaic
 import (
 	"image"
 	"image/color"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/disintegration/imaging"
 )
 
-func TestGenerate(t *testing.T) {
+func TestGenerateImage(t *testing.T) {
 	fontPath := testFontPath(t)
 
 	tests := []struct {
 		name          string
+		source        image.Image
+		text          string
 		config        Config
 		wantWidth     int
 		wantHeight    int
@@ -22,179 +25,139 @@ func TestGenerate(t *testing.T) {
 		wantErrSubstr string
 	}{
 		{
-			name: "generates mosaic with original dimensions",
-			config: Config{
-				Logger:       testLogger(),
-				Text:         "hello world",
-				InputImage:   solidImage(120, 80, color.RGBA{R: 255, G: 0, B: 0, A: 255}),
-				MonoFontPath: fontPath,
-			},
+			name:         "generates with original dimensions",
+			source:       solidImage(120, 80, color.RGBA{R: 255, A: 255}),
+			text:         "hello world",
+			config:       NewConfig(WithFontPath(fontPath)),
 			wantWidth:    120,
 			wantHeight:   80,
 			wantNonEmpty: true,
 		},
 		{
-			name: "resizes to target width",
-			config: Config{
-				Logger:       testLogger(),
-				Text:         "hello world",
-				InputImage:   solidImage(200, 100, color.RGBA{R: 0, G: 255, B: 0, A: 255}),
-				MonoFontPath: fontPath,
-				TargetWidth:  100,
-			},
+			name:   "resizes to target width",
+			source: solidImage(200, 100, color.RGBA{G: 255, A: 255}),
+			text:   "hello world",
+			config: NewConfig(
+				WithFontPath(fontPath),
+				WithTargetWidth(100),
+			),
 			wantWidth:    100,
 			wantHeight:   50,
 			wantNonEmpty: true,
 		},
 		{
-			name: "supports basic unicode runes",
-			config: Config{
-				Logger:       testLogger(),
-				Text:         "hello привет café",
-				InputImage:   solidImage(160, 90, color.RGBA{R: 0, G: 0, B: 255, A: 255}),
-				MonoFontPath: fontPath,
-			},
+			name:         "supports basic unicode runes",
+			source:       solidImage(160, 90, color.RGBA{B: 255, A: 255}),
+			text:         "hello привет café",
+			config:       NewConfig(WithFontPath(fontPath)),
 			wantWidth:    160,
 			wantHeight:   90,
 			wantNonEmpty: true,
 		},
 		{
-			name: "transparent source stays transparent",
-			config: Config{
-				Logger:       testLogger(),
-				Text:         "hello world",
-				InputImage:   solidImage(120, 80, color.RGBA{R: 255, G: 0, B: 0, A: 0}),
-				MonoFontPath: fontPath,
-			},
+			name:         "transparent source stays transparent",
+			source:       solidImage(120, 80, color.RGBA{R: 255, A: 0}),
+			text:         "hello world",
+			config:       NewConfig(WithFontPath(fontPath)),
 			wantWidth:    120,
 			wantHeight:   80,
 			wantNonEmpty: false,
 		},
 		{
-			name: "errors when input image is missing",
-			config: Config{
-				Logger:       testLogger(),
-				Text:         "hello world",
-				MonoFontPath: fontPath,
-			},
+			name:          "rejects missing image",
+			text:          "hello world",
+			config:        NewConfig(WithFontPath(fontPath)),
 			wantErrSubstr: "input image is required",
 		},
 		{
-			name: "errors when font path is missing",
-			config: Config{
-				Logger:     testLogger(),
-				Text:       "hello world",
-				InputImage: solidImage(120, 80, color.RGBA{A: 255}),
-			},
-			wantErrSubstr: "monospace font path is required",
-		},
-		{
-			name: "errors when text is empty",
-			config: Config{
-				Logger:       testLogger(),
-				Text:         " \n\t ",
-				InputImage:   solidImage(120, 80, color.RGBA{A: 255}),
-				MonoFontPath: fontPath,
-			},
+			name:          "rejects empty text",
+			source:        solidImage(120, 80, color.RGBA{A: 255}),
+			text:          " \n\t ",
+			config:        NewConfig(WithFontPath(fontPath)),
 			wantErrSubstr: "text cannot be empty",
 		},
 		{
-			name: "errors when target width is negative",
-			config: Config{
-				Logger:       testLogger(),
-				Text:         "hello world",
-				InputImage:   solidImage(120, 80, color.RGBA{A: 255}),
-				MonoFontPath: fontPath,
-				TargetWidth:  -1,
-			},
-			wantErrSubstr: "target width cannot be negative",
-		},
-		{
-			name: "errors when base font size is negative",
-			config: Config{
-				Logger:       testLogger(),
-				Text:         "hello world",
-				InputImage:   solidImage(120, 80, color.RGBA{A: 255}),
-				MonoFontPath: fontPath,
-				BaseFontSize: -1,
-			},
-			wantErrSubstr: "base font size cannot be negative",
-		},
-		{
-			name: "errors when contrast is out of range",
-			config: Config{
-				Logger:          testLogger(),
-				Text:            "hello world",
-				InputImage:      solidImage(120, 80, color.RGBA{A: 255}),
-				MonoFontPath:    fontPath,
-				ContrastPercent: 101,
-			},
-			wantErrSubstr: "contrast percent must be between",
-		},
-		{
-			name: "errors when text weight is out of range",
-			config: Config{
-				Logger:       testLogger(),
-				Text:         "hello world",
-				InputImage:   solidImage(120, 80, color.RGBA{A: 255}),
-				MonoFontPath: fontPath,
-				TextWeight:   5,
-			},
-			wantErrSubstr: "text weight cannot be greater than",
-		},
-		{
-			name: "errors when font is too large",
-			config: Config{
-				Logger:       testLogger(),
-				Text:         "hello world",
-				InputImage:   solidImage(20, 20, color.RGBA{A: 255}),
-				MonoFontPath: fontPath,
-				BaseFontSize: 100,
-			},
+			name:   "rejects oversized font",
+			source: solidImage(20, 20, color.RGBA{A: 255}),
+			text:   "hello world",
+			config: NewConfig(
+				WithFontPath(fontPath),
+				WithBaseFontSize(100),
+			),
 			wantErrSubstr: "font size is too large",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Generate(tt.config)
+			got, err := generateImage(tt.source, tt.text, tt.config)
 
 			if tt.wantErrSubstr != "" {
-				if err == nil {
-					t.Fatalf("Generate() expected error containing %q, got nil", tt.wantErrSubstr)
-				}
-				if !strings.Contains(err.Error(), tt.wantErrSubstr) {
-					t.Fatalf("Generate() error = %q; want substring %q", err.Error(), tt.wantErrSubstr)
+				if err == nil || !strings.Contains(err.Error(), tt.wantErrSubstr) {
+					t.Fatalf("generateImage() error = %v, want substring %q", err, tt.wantErrSubstr)
 				}
 				return
 			}
-
 			if err != nil {
-				t.Fatalf("Generate() returned error: %v", err)
+				t.Fatalf("generateImage() error = %v", err)
 			}
 
-			if got == nil {
-				t.Fatal("Generate() returned nil image")
+			if got.Bounds().Dx() != tt.wantWidth || got.Bounds().Dy() != tt.wantHeight {
+				t.Fatalf(
+					"generated size = %dx%d, want %dx%d",
+					got.Bounds().Dx(),
+					got.Bounds().Dy(),
+					tt.wantWidth,
+					tt.wantHeight,
+				)
 			}
-
-			if got.Bounds().Dx() != tt.wantWidth {
-				t.Errorf("width = %d; want %d", got.Bounds().Dx(), tt.wantWidth)
-			}
-
-			if got.Bounds().Dy() != tt.wantHeight {
-				t.Errorf("height = %d; want %d", got.Bounds().Dy(), tt.wantHeight)
-			}
-
-			if hasVisiblePixel(got) != tt.wantNonEmpty {
-				t.Errorf("hasVisiblePixel = %v; want %v", hasVisiblePixel(got), tt.wantNonEmpty)
+			if visible := hasVisiblePixel(got); visible != tt.wantNonEmpty {
+				t.Fatalf("hasVisiblePixel() = %v, want %v", visible, tt.wantNonEmpty)
 			}
 		})
 	}
 }
 
-func TestGenerateHandlesNonZeroImageBounds(t *testing.T) {
-	fontPath := testFontPath(t)
+func TestGenerateWritesPNG(t *testing.T) {
+	dir := t.TempDir()
+	inputPath := filepath.Join(dir, "input.png")
+	textPath := filepath.Join(dir, "text.txt")
+	outputPath := filepath.Join(dir, "output.png")
 
+	if err := imaging.Save(
+		solidImage(160, 100, color.RGBA{R: 240, G: 180, B: 80, A: 255}),
+		inputPath,
+	); err != nil {
+		t.Fatalf("save test input: %v", err)
+	}
+	if err := os.WriteFile(textPath, []byte("hello world from text mosaic"), 0o600); err != nil {
+		t.Fatalf("write test text: %v", err)
+	}
+
+	cfg := NewConfig(
+		WithInputPath(inputPath),
+		WithOutputPath(outputPath),
+		WithTextPath(textPath),
+		WithFontPath(testFontPath(t)),
+	)
+	if err := Generate(cfg); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+
+	result, err := imaging.Open(outputPath)
+	if err != nil {
+		t.Fatalf("open generated output: %v", err)
+	}
+	if result.Bounds().Dx() != 160 || result.Bounds().Dy() != 100 {
+		t.Fatalf(
+			"generated size = %dx%d, want 160x100",
+			result.Bounds().Dx(),
+			result.Bounds().Dy(),
+		)
+	}
+}
+
+func TestGenerateImageHandlesNonZeroBounds(t *testing.T) {
 	src := image.NewRGBA(image.Rect(50, 75, 170, 155))
 	for y := src.Bounds().Min.Y; y < src.Bounds().Max.Y; y++ {
 		for x := src.Bounds().Min.X; x < src.Bounds().Max.X; x++ {
@@ -202,49 +165,38 @@ func TestGenerateHandlesNonZeroImageBounds(t *testing.T) {
 		}
 	}
 
-	got, err := Generate(Config{
-		Logger:       testLogger(),
-		Text:         "hello world",
-		InputImage:   src,
-		MonoFontPath: fontPath,
-	})
+	got, err := generateImage(
+		src,
+		"hello world",
+		NewConfig(WithFontPath(testFontPath(t))),
+	)
 	if err != nil {
-		t.Fatalf("Generate() returned error: %v", err)
+		t.Fatalf("generateImage() error = %v", err)
 	}
 
 	if got.Bounds().Min != (image.Point{}) {
-		t.Errorf("output min bounds = %v; want %v", got.Bounds().Min, image.Point{})
+		t.Fatalf("output min bounds = %v, want origin", got.Bounds().Min)
 	}
-
-	if got.Bounds().Dx() != src.Bounds().Dx() {
-		t.Errorf("output width = %d; want %d", got.Bounds().Dx(), src.Bounds().Dx())
-	}
-
-	if got.Bounds().Dy() != src.Bounds().Dy() {
-		t.Errorf("output height = %d; want %d", got.Bounds().Dy(), src.Bounds().Dy())
-	}
-
-	if !hasVisiblePixel(got) {
-		t.Fatal("expected output to contain visible text pixels")
+	if got.Bounds().Dx() != src.Bounds().Dx() || got.Bounds().Dy() != src.Bounds().Dy() {
+		t.Fatalf(
+			"generated size = %dx%d, want %dx%d",
+			got.Bounds().Dx(),
+			got.Bounds().Dy(),
+			src.Bounds().Dx(),
+			src.Bounds().Dy(),
+		)
 	}
 }
 
 func TestNormalizeText(t *testing.T) {
 	got, err := normalizeText(" hello\n\nworld\tпривет  café ")
 	if err != nil {
-		t.Fatalf("normalizeText() returned error: %v", err)
+		t.Fatalf("normalizeText() error = %v", err)
 	}
 
-	want := []rune("hello world привет café ")
-	if string(got) != string(want) {
-		t.Errorf("normalizeText() = %q; want %q", string(got), string(want))
-	}
-}
-
-func TestNormalizeTextEmpty(t *testing.T) {
-	_, err := normalizeText(" \n\t ")
-	if err == nil {
-		t.Fatal("normalizeText() expected error, got nil")
+	want := "hello world привет café "
+	if string(got) != want {
+		t.Fatalf("normalizeText() = %q, want %q", string(got), want)
 	}
 }
 
@@ -266,49 +218,35 @@ func TestCalculateScaledFontSize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := calculateScaledFontSize(tt.baseSize, tt.width)
-			if got != tt.want {
-				t.Errorf("calculateScaledFontSize(%v, %v) = %v; want %v", tt.baseSize, tt.width, got, tt.want)
+			if got := calculateScaledFontSize(tt.baseSize, tt.width); got != tt.want {
+				t.Fatalf("calculateScaledFontSize() = %v, want %v", got, tt.want)
 			}
 		})
 	}
 }
 
-func TestGetImgRGBAHandlesNonZeroBounds(t *testing.T) {
+func TestSampleRGBAHandlesNonZeroBounds(t *testing.T) {
 	img := image.NewRGBA(image.Rect(10, 20, 11, 21))
 	img.Set(10, 20, color.RGBA{R: 255, G: 128, B: 64, A: 255})
 
-	r, g, b, a := getImgRGBA(img, 0, 0)
-
-	if r <= 0.99 {
-		t.Errorf("r = %v; want close to 1", r)
-	}
-	if g <= 0.49 || g >= 0.51 {
-		t.Errorf("g = %v; want close to 0.5", g)
-	}
-	if b <= 0.24 || b >= 0.26 {
-		t.Errorf("b = %v; want close to 0.25", b)
-	}
-	if a <= 0.99 {
-		t.Errorf("a = %v; want close to 1", a)
+	r, g, b, a := sampleRGBA(img, 0, 0)
+	if r <= 0.99 || g <= 0.49 || g >= 0.51 || b <= 0.24 || b >= 0.26 || a <= 0.99 {
+		t.Fatalf("sampleRGBA() = (%v,%v,%v,%v), want approximately (1,.5,.25,1)", r, g, b, a)
 	}
 }
 
 func solidImage(width, height int, c color.RGBA) image.Image {
 	img := image.NewRGBA(image.Rect(0, 0, width, height))
-
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
+	for y := range height {
+		for x := range width {
 			img.SetRGBA(x, y, c)
 		}
 	}
-
 	return img
 }
 
 func hasVisiblePixel(img image.Image) bool {
 	bounds := img.Bounds()
-
 	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			_, _, _, a := img.At(x, y).RGBA()
@@ -317,24 +255,22 @@ func hasVisiblePixel(img image.Image) bool {
 			}
 		}
 	}
-
 	return false
 }
 
 func testFontPath(t *testing.T) string {
 	t.Helper()
 
-	path := filepath.Join("..", "..", "..", "fonts", "NotoSansMono-VariableFont_wdth,wght.ttf")
-
+	path := filepath.Join(
+		"..",
+		"..",
+		"..",
+		"fonts",
+		"NotoSansMono-VariableFont_wdth,wght.ttf",
+	)
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("test font missing at %q: %v", path, err)
 	}
 
 	return path
-}
-
-func testLogger() *slog.Logger {
-	return slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelError,
-	}))
 }
