@@ -30,12 +30,13 @@ Inspect the PNG outputs at their native dimensions as well as resized previews.
 CI's seven-day artifact retention means the baseline visual outputs may need
 to be regenerated from this commit for a later side-by-side review.
 
-## Replacement results
+## Initial replacement results
 
 The replacement branch was measured with the same CI workflow at commit
 `14edae5` ([run 36298769804](https://github.com/santiagoa58/image-play/actions/runs/36298769804)).
-The floor is `max(6 px, round(1% of the shorter image dimension))`; the maximum
-still comes from the image and the two most frequent words.
+This initial version used `max(6 px, round(1% of the shorter image dimension))`
+as its minimum. The maximum still came from the image and the two most
+frequent words.
 
 | Input | Automatic min | Automatic max | Placed | Skipped | Horizontal | Vertical | Total time |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
@@ -45,16 +46,30 @@ still comes from the image and the two most frequent words.
 | `keeks_no_bckgrnd.png` | 6 px | 75 px | 77 | 423 | 41 | 36 | 0.98 s |
 
 The timings are single CI runs on the same workflow, rather than repeated
-benchmarks. The new search is much faster on these examples. It places fewer
-words in three of the four images because it finds the largest fitting size
-for each word, leaving less space for later words; the larger minimum on two
-images contributes as well. Every skipped word has no legal placement at its
-minimum size in either orientation with the current rectangular footprint.
+benchmarks. The new search is much faster on these examples. The larger minimum
+on the two larger images caused many of their words to be skipped.
+
+## Fixed 6 px minimum
+
+The final default uses 6 px on every image. These counts are from a local run
+with OpenCV 4.10, using the same inputs, font, and 500 candidate words. The
+automatic maximum was unchanged when the minimum changed.
+
+| Input | Automatic max | Placed | Skipped | Horizontal | Vertical |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `couple_tour.jpg` | 106 px | 371 | 129 | 171 | 200 |
+| `deepseek-logo-icon.png` | 44 px | 98 | 402 | 82 | 16 |
+| `gen-img-couple.png` | 116 px | 428 | 72 | 244 | 184 |
+| `keeks_no_bckgrnd.png` | 75 px | 77 | 423 | 41 | 36 |
+
+Every skipped word has no legal placement at 6 px in either allowed orientation
+with the current rectangular footprint. Repeated local runs found similar
+generation times between the adaptive and fixed minimum; the fixed size did
+not cause a consistent slowdown.
 
 Full-size [before](assets/placement-comparison/before) and
-[after](assets/placement-comparison/after) PNGs were regenerated locally from
-the baseline and replacement commits with the same inputs, font, and OpenCV
-4.10. Both versions retain recognizable silhouettes. The replacement has
-larger prominent words and more open areas, particularly in `gen-img-couple`.
-Its orientation mix shifts toward vertical words. These are visible artistic
-tradeoffs to review alongside the exact-fit and timing gains.
+[after](assets/placement-comparison/after) PNGs use the same inputs, font, and
+OpenCV 4.10. The final `after` PNGs use the fixed 6 px minimum. Both versions
+retain recognizable silhouettes. The replacement favors larger prominent
+words and has a higher share of vertical words; review the visual balance
+alongside the exact-fit and timing gains.

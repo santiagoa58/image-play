@@ -19,8 +19,7 @@ type Config struct {
 	// FontPath points to the TTF/OTF font used for measurement and rendering.
 	FontPath string
 
-	// MinFontSize overrides the image-relative minimum when positive. Zero
-	// uses max(6px, 1% of the image's shorter side).
+	// MinFontSize overrides the 6px minimum when positive. Zero uses 6px.
 	MinFontSize float64
 	// MaxFontSize overrides automatic maximum-size calibration when positive.
 	// Zero lets the layout determine a sensible maximum from the image shape.

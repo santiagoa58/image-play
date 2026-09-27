@@ -47,7 +47,7 @@ func Generate(cfg Config) error {
 		return fmt.Errorf("prepare mask: %w", err)
 	}
 	defer mask.Close()
-	minFontSize := minimumFontSize(mask, cfg)
+	minFontSize := minimumFontSize(cfg)
 	if cfg.MaxFontSize > 0 && cfg.MaxFontSize < minFontSize {
 		return fmt.Errorf("maximum font size %.1fpx is below the resolved minimum %.1fpx", cfg.MaxFontSize, minFontSize)
 	}

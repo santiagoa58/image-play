@@ -51,9 +51,9 @@ go run ./cmd/mosaic \
 
 Current defaults include 0/90-degree placement, logarithmic frequency scaling,
 rectangular word footprints, an automatic maximum font size, and up to 500
-candidate words. The minimum size is the larger of 6 px and 1% of the image's
-shorter side. The candidate limit is a source pool: words that cannot fit at
-the minimum size in either orientation are skipped.
+candidate words. The default minimum size is 6 px for every image. The
+candidate limit is a source pool: words that cannot fit at the minimum size in
+either orientation are skipped.
 
 ### Pipeline
 
@@ -108,10 +108,10 @@ region's occupied fraction ranks legal positions; it never rules out a fit.
 
 ## Placement behavior
 
-Words are processed in frequency order. The default minimum is computed once
-from image dimensions; a positive `MinFontSize` overrides it. The default
-maximum is calibrated against the image by probing the most important words in
-a fresh layout; a positive `MaxFontSize` overrides that calibration. Frequency
+Words are processed in frequency order. The default minimum is 6 px for every
+image; a positive `MinFontSize` overrides it. The default maximum is calibrated
+against the image by probing the most important words in a fresh layout; a
+positive `MaxFontSize` overrides that calibration. Frequency
 maps words logarithmically into this range. When a desired size does not fit,
 placement binary-searches whole-pixel font sizes down to the minimum.
 
