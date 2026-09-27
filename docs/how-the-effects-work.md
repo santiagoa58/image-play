@@ -51,10 +51,10 @@ out helps you see the image; zooming in helps you see the text.
 
 | Question | Word cloud | Text mosaic |
 | --- | --- | --- |
-| What comes from the image? | A silhouette and information about its interior | A brightness and transparency sample for each grid position |
+| What comes from the image? | A silhouette, interior distances, and local word colors | A brightness and transparency sample for each grid position |
 | What comes from the text? | Distinct words and occurrence counts | Characters in their original order, with whitespace simplified |
-| What changes between pieces of text? | Font size, position, and orientation | Drawing color and opacity; the font size stays fixed within one mosaic |
-| What is the background? | Opaque white, with black words | Transparent between characters |
+| What changes between pieces of text? | Font size, position, orientation, and color | Drawing color and opacity; the font size stays fixed within one mosaic |
+| What is the background? | Opaque black or white, inferred from the image border | Transparent between characters |
 | What is preserved? | The selected shape and a visual ordering of words | An approximation of the image's light and dark structure |
 
 Both commands need an image, a text file, and a font. From the repository root,
@@ -120,7 +120,7 @@ See [imaging's grayscale implementation](https://github.com/disintegration/imagi
 A **mask** is another grid with the same dimensions as the image. A **binary
 mask** has only two states. Our word-cloud masks use 255 for allowed and 0 for
 forbidden. Their white pixels mean “you may place something here,” even though
-the final words themselves will be black.
+the final words use colors sampled from the original image.
 
 ```text
 ....###....
@@ -166,7 +166,7 @@ flowchart TD
     shape["1. Prepare the shape<br/>Select pixels, clean edges, and map the interior"]
     words["2. Prepare the words<br/>Count words, choose sizes, and measure them"]
     place["3. Place one word at a time<br/>Find a fit, choose a position, and reserve space"]
-    draw["4. Draw the result<br/>Render accepted words on a white canvas"]
+    draw["4. Draw the result<br/>Render accepted words using source colors"]
 
     shape --> words --> place --> draw
 ```
@@ -182,33 +182,55 @@ the result.
 
 ### Step 1: Decide which pixels form the shape
 
-The code loads the image with transparency intact and converts it to grayscale.
-For images with alpha, pixels at or below the default alpha threshold of 8 are
-considered invisible. Their grayscale values are replaced with white before
-thresholding, so their hidden RGB values cannot masquerade as dark subject
-pixels. The amount of white background still affects the grayscale distribution.
+The code keeps two versions of the image: the original colors for drawing,
+and a grayscale copy for deciding where words may fit. For images with alpha,
+pixels at or below the default alpha threshold of 8 are invisible. Hidden RGB
+values must never create placement space.
 
-Next comes **thresholding**: choose a brightness cutoff and separate pixels
-into two groups. For illustration, if the cutoff were 120, a dark pixel at 40
-would be selected and a light pixel at 220 would be excluded.
-
-We use **inverse Otsu thresholding**. Otsu's method chooses a cutoff from the
-image's brightness distribution, seeking two groups with small variation
-within each. “Inverse” makes the dark group the allowed, white part of our
-mask. The cutoff is computed per image; 120 above was just an example.
+**Thresholding** separates pixels into two brightness groups. **Otsu's method**
+chooses the cutoff from the image's brightness distribution. It seeks groups
+with small variation within each group; it does not identify objects.
 See [OpenCV's thresholding tutorial](https://docs.opencv.org/4.x/d7/d4d/tutorial_py_thresholding.html).
 
-The brightness distribution is a **histogram**: a count of how many pixels have
-each shade. Imagine 256 bins, one for each value from 0 to 255. A dark object on
-a light background often creates a cluster of dark values and a cluster of
-light ones. A cutoff between them can separate the two; an image with similar
-subject and background shades is much harder to separate this way.
+The brightness distribution is a **histogram**: a count of pixels in each of
+256 shade bins. A black background and an orange helmet tend to form two
+brightness groups. Otsu helps separate those groups, but we still need to
+choose which group should contain words.
 
-This explains an important limitation: the program selects dark visible regions;
-it does not recognize people, faces, or objects. A dark background may become
-part of the shape, and a light subject may be excluded. Even a transparent
-cutout still goes through brightness selection. Inspecting the mask is the best
-way to see what the program decided.
+Our rule is to treat the **image border as a clue about the background**.
+We first select the dark group, then inspect visible pixels along the outer
+perimeter. If more than half of those border pixels belong to the dark group,
+we switch to selecting the bright group. Otherwise, we keep the dark group.
+If visible luminance is uniform, or the entire border is transparent,
+we keep dark-foreground selection as a fallback.
+
+| Example | Border clue | Place words in | Draw on |
+| --- | --- | --- | --- |
+| Black logo on white | Light border | Dark logo pixels | White |
+| Orange Vader helmet on black | Dark border | Bright helmet highlights | Black |
+| Dark logo with a transparent border | No visible border clue | Dark visible pixels | White |
+
+For Vader, selecting black pixels would fill the background and leave the
+helmet as empty space. Selecting the bright group instead puts words into the
+helmet's colored highlights. Its black eyes, vents, and surrounding background
+remain empty. Those gaps help us recognize the helmet.
+
+For a dark background, we also change the brightness measure to the strongest
+RGB channel: `max(red, green, blue)`. A saturated red pixel such as
+`(180, 0, 0)` has a low grayscale luminance, but its color intensity is 180.
+This helps preserve red and blue detail beside bright yellow highlights. We
+apply Otsu again to this intensity image. This is our design choice for colored
+detail against darkness, rather than a claim about perceived brightness.
+
+Before thresholding, invisible pixels are filled with the assumed background
+brightness: initially white, and black if the border indicates a dark
+background. The threshold is recomputed using color intensity after that switch.
+This prevents hidden colors from forming a false brightness group; the number
+of invisible pixels can still influence the histogram. Alpha is reapplied after cleanup as well.
+
+This is a background heuristic, not object recognition. A tightly cropped subject
+that fills the border, a busy background, or similar foreground and background
+shades can confuse it. Inspect the debug mask to see the selected regions.
 
 Code: [image loading and mask construction](../internal/imageutil/mask.go).
 
@@ -528,13 +550,44 @@ Code: [region construction and ranking](../internal/effects/wordcloud/regions.go
 ### Step 11: Draw the accepted layout
 
 The placement result records each word, actual font size, center, and angle.
-The renderer starts with a white canvas, loads the font at each accepted size,
-moves the drawing origin to the word's center, rotates it, and draws black text
-with a centered anchor. It then restores the drawing state for the next word.
+The renderer starts with an opaque black canvas when the mask selected bright
+foreground, and an opaque white canvas otherwise. Unoccupied space therefore
+matches the background's brightness group.
 
-Keeping drawing separate from packing means we can reason about the accepted
-geometry before producing the PNG. Source colors are not sampled for this
-renderer; the image influenced the shape and placement.
+Each accepted word gets **one color from the original image**. We average the
+red, green, and blue channels under its measured rectangle, excluding placement
+padding. For a vertical word, we swap the rectangle's width and height before
+sampling. For example, a word lying over uniformly orange pixels stays orange;
+a word spanning equal areas of red and yellow gets their average, an orange
+shade. This keeps whole words readable while preserving broad color changes.
+
+Alpha weights each pixel's contribution: fully transparent pixels contribute
+nothing, and a half-transparent pixel contributes half as much as an opaque one.
+Go's `Color.RGBA()` already returns alpha-premultiplied channel values, so we
+sum those channels and divide by the summed alpha to recover the visible mean.
+See [Go's Color contract](https://pkg.go.dev/image/color#Color).
+
+Finally, the renderer loads the font at the accepted size, moves the drawing
+origin to the word's center, rotates it, and draws the colored text with a
+centered anchor. It restores the drawing state for the next word. Keeping
+sampling and drawing separate from packing makes geometry easier to inspect.
+
+Try the dark-background fixture:
+
+```bash
+go run ./cmd/mosaic \
+  -effect wordcloud \
+  -in testdata/images/darth_vader_og.jpg \
+  -text testdata/text/sample_text_message.txt \
+  -font "fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+  -out vader-colored.png
+```
+
+![Vader word cloud using sampled source colors on black](assets/examples/darth-vader-wordcloud.png)
+
+The result should contain red, orange, and yellow words on black. It will not
+reproduce every painted detail: thresholding discards dark shading, and whole
+word rectangles need more room than individual image pixels.
 
 Code: [word-cloud orchestration](../internal/effects/wordcloud/wordcloud.go) and
 [renderer](../internal/effects/wordcloud/render.go).
@@ -895,7 +948,8 @@ characters come from the text in order; sampled pixels set their color. The
 viewing background shows through the transparent gaps.
 
 A useful explanation to give someone else is: “The cloud counts words and packs
-padded word rectangles into a selected shape. The mosaic repeats characters
+padded word rectangles into a selected shape, coloring them from the image.
+The mosaic repeats characters
 on a grid and colors each one using the image beneath its center.” You can now
 expand either sentence into the steps and tradeoffs behind it.
 

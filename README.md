@@ -23,7 +23,7 @@ Code links and configuration examples connect each idea to the implementation.
 ## Example effects
 
 The same source image and text can be rendered with either supported effect.
-These previews were generated from the current implementation using
+These previews were generated using
 `testdata/images/gen-img-couple.png`, the sample text, and the included
 Noto Sans Mono font.
 
@@ -48,7 +48,12 @@ transparent background.
 ## Word cloud
 
 The word-cloud pipeline turns a source image into a placement silhouette, sizes
-words by frequency, then packs those words inside the silhouette.
+words by frequency, then packs those words inside the silhouette. Each word
+uses the average source color beneath its rectangle. A dark image border selects
+bright foreground and a black canvas; other images use dark foreground on white.
+This preserves colored highlights and dark interior gaps in images such as
+`testdata/images/darth_vader_og.jpg`. Transparent borders keep dark-foreground
+selection. Border detection is a heuristic; it does not recognize objects.
 
 ```bash
 go run ./cmd/mosaic \
