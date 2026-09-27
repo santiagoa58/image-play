@@ -66,6 +66,27 @@ func TestMinimumFontSizeUsesImageScaleOrExplicitOverride(t *testing.T) {
 	}
 }
 
+func TestMeasuredFootprintsGrowWithFontSize(t *testing.T) {
+	// Binary search relies on this property for the bundled font. A regression
+	// in font measurement could otherwise miss the largest fitting size.
+	font := wordcloudTestFontPath(t)
+	ctx := &PlacementContext{wordPadding: 1}
+	for _, text := range []string{"I", "example", "WAITING", "gyp"} {
+		previous := image.Point{}
+		for size := 6; size <= 200; size++ {
+			word, err := textutil.MeasureWord(text, 1, font, float64(size))
+			if err != nil {
+				t.Fatal(err)
+			}
+			current := ctx.footprint(word, 0)
+			if current.X < previous.X || current.Y < previous.Y {
+				t.Fatalf("%q footprint shrank at %dpx: %v after %v", text, size, current, previous)
+			}
+			previous = current
+		}
+	}
+}
+
 func newSizingTestMask(t *testing.T, width, height int) *imageutil.Mask {
 	t.Helper()
 
