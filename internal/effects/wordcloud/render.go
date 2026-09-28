@@ -60,7 +60,7 @@ func canvasColor(darkBackground bool) color.Color {
 }
 
 // sampleWordColor selects a source color from the most prevalent color family
-// beneath the same rectangle used by the existing renderer. This avoids making
+// beneath the word's measured rectangle. This avoids making
 // a muted, artificial blend across differently colored source pixels.
 func sampleWordColor(source image.Image, word PlacedWord) color.NRGBA {
 	width, height := word.Word.Width, word.Word.Height

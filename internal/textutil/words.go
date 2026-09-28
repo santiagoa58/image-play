@@ -120,8 +120,8 @@ func MeasureWords(h WordCounts, cfg WordMeasurementConfig) ([]Word, error) {
 				countRange,
 				fontSizeRange,
 			)
-			// Keep the frequency endpoints, but give intermediate counts more
-			// of the available size range before exact-fit placement.
+			// The square root preserves the endpoints while increasing the
+			// target size for intermediate frequencies.
 			ratio := (scaled - cfg.MinFontSize) / (cfg.MaxFontSize - cfg.MinFontSize)
 			size = cfg.MinFontSize + math.Sqrt(ratio)*(cfg.MaxFontSize-cfg.MinFontSize)
 		}

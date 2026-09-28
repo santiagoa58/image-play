@@ -1,12 +1,12 @@
 # Fonts for word clouds
 
-The existing `NotoSansMono-VariableFont_wdth,wght.ttf` gives every character
-roughly the same width. It remains supported by the original example commands.
+`NotoSansMono-VariableFont_wdth,wght.ttf` gives every character roughly the
+same width and is used for the text-mosaic example.
 
 `NotoSans-Bold.ttf` is a proportional bold alternative: letters such as `I`
 occupy less width than `W`, and thicker strokes remain visible at smaller
 preview sizes. Select it with `-font fonts/NotoSans-Bold.ttf`; add `-uppercase`
-for capitalized word-cloud text. Text is converted before measurement, so the
+for uppercase word-cloud text. Text is converted before measurement, so the
 layout accounts for the new letter widths.
 
 The bold font is an unmodified upstream file from the archived

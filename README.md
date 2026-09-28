@@ -49,8 +49,8 @@ transparent background.
 
 The word-cloud pipeline turns a source image into a placement silhouette, sizes
 words by frequency, then packs those words inside the silhouette. Each word
-uses a representative source color beneath its rectangle. A dark image border selects
-bright foreground and a black canvas; other images use dark foreground on white.
+uses a representative source color beneath its rectangle. A dark image border
+selects bright foreground and a black canvas; other images use dark foreground on white.
 This preserves colored highlights and dark interior gaps in images such as
 `testdata/images/darth_vader_og.jpg`. Transparent borders keep dark-foreground
 selection. Border detection is a heuristic; it does not recognize objects.
@@ -146,8 +146,8 @@ free space. At the chosen size, placement favors a less-filled shape region,
 then the configured orientation order (horizontal first by default), then the
 deepest legal center in that region. Each word credits its measured rectangle
 to region coverage, while the free-space mask reserves glyph pixels for larger
-words. A skipped word has no legal
-position in either orientation at the permitted minimum size.
+words. A skipped word has no legal position in either orientation at the
+permitted minimum size.
 
 ## Text mosaic
 
