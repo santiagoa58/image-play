@@ -92,11 +92,3 @@ jobs:
               echo "::endgroup::"
             done
           done
-
-      - name: Upload visual test outputs
-        uses: actions/upload-artifact@v4
-        with:
-          name: visual-test-results
-          path: ci-output/**/*.png
-          if-no-files-found: error
-          retention-days: 7

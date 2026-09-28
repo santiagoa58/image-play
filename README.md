@@ -217,9 +217,8 @@ go build -o ./bin/mosaic ./cmd/mosaic
 ```
 
 CI checks formatting, module tidiness, `go vet`, the full test suite, the
-deployable Docker image, and all combinations of supported effects and images
-under `testdata/images`. The generated PNGs are uploaded as a short-lived
-workflow artifact so visual output can be reviewed.
+deployable Docker image, and that both effects generate PNGs for the images
+under `testdata/images`.
 
 The repository Dockerfile provides the OpenCV toolchain and runtime stages used
 for local and container builds.

@@ -762,7 +762,7 @@ what you actually see.
 
 ### Settings you can change in Go
 
-The CLI currently exposes only `-effect`, `-in`, `-text`, `-font`, and `-out`.
+The CLI exposes `-effect`, `-in`, `-text`, `-font`, `-out`, and `-uppercase`.
 The controls below are Go configuration fields, not additional command-line
 flags. Start with `NewConfig` so defaults are populated, then use options or
 assign fields before calling `Generate`.
@@ -925,12 +925,6 @@ and padding affect fit; placement finds the largest fitting size; region
 accounting follows actual reserved pixels; and mosaics handle whitespace,
 transparency, dimensions, and output files. These are checks of particular
 mechanisms, not a guarantee that every input yields an attractive picture.
-
-For past visual and timing comparisons, see the
-[word-cloud baseline](wordcloud-baseline.md). Its original measurements include
-an older spiral-search implementation and later replacements; read the stage
-labels before comparing results. Single-run times are not universal speed
-promises.
 
 ### Explain it back to yourself
 
