@@ -126,7 +126,11 @@ func (ctx *PlacementContext) largestFittingFontSize(word textutil.Word, minimum,
 // fits checks the complete free-space mask, without changing it.
 func (ctx *PlacementContext) fits(word textutil.Word) (bool, error) {
 	for _, angle := range ctx.angles {
-		centers, err := ctx.space.ValidCenters(ctx.footprint(word, angle))
+		size, err := ctx.fitFootprint(word, angle)
+		if err != nil {
+			return false, err
+		}
+		centers, err := ctx.space.ValidCenters(size)
 		if err != nil {
 			return false, err
 		}
@@ -169,13 +173,29 @@ func (ctx *PlacementContext) choosePlacementCenter(word textutil.Word) (image.Po
 		}
 	}()
 	for _, angle := range ctx.angles {
-		centers, err := ctx.space.ValidCenters(ctx.footprint(word, angle))
+		size, err := ctx.fitFootprint(word, angle)
+		if err != nil {
+			return image.Point{}, 0, false, err
+		}
+		centers, err := ctx.space.ValidCenters(size)
 		if err != nil {
 			return image.Point{}, 0, false, err
 		}
 		options = append(options, orientedCenters{angle: angle, centers: centers})
 	}
 	return ctx.regions.choose(options)
+}
+
+func (ctx *PlacementContext) fitFootprint(word textutil.Word, angle int) (image.Point, error) {
+	if word.FontSize <= 24 {
+		return ctx.footprint(word, angle), nil
+	}
+	glyph, err := rasterizeGlyph(word, ctx.fontPath, angle, ctx.wordPadding)
+	if err != nil {
+		return image.Point{}, err
+	}
+	defer glyph.Close()
+	return glyph.fitSize(), nil
 }
 
 func (ctx *PlacementContext) reserveGlyph(glyph glyphFootprint, rectangle, center image.Point) error {

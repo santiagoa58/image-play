@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -86,8 +87,22 @@ func TestContrastingWordColorMovesAwayFromEitherCanvas(t *testing.T) {
 	if got.R >= light.R || got.G >= light.G || got.B >= light.B {
 		t.Fatalf("light color = %v, want darker color against white", got)
 	}
-	if got := contrastingWordColor(color.NRGBA{A: 255}, color.Black); got != (color.NRGBA{A: 255}) {
-		t.Fatalf("black against black = %v, want black", got)
+	for _, tc := range []struct {
+		name       string
+		foreground color.NRGBA
+		background color.Color
+	}{
+		{"green on white", color.NRGBA{G: 255, A: 255}, color.White},
+		{"black on black", color.NRGBA{A: 255}, color.Black},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := contrastingWordColor(tc.foreground, tc.background)
+			bg := color.NRGBAModel.Convert(tc.background).(color.NRGBA)
+			light, dark := math.Max(luminance(got), luminance(bg)), math.Min(luminance(got), luminance(bg))
+			if ratio := (light + 0.05) / (dark + 0.05); ratio < 4.5 {
+				t.Fatalf("color = %v, contrast ratio = %.2f, want at least 4.5", got, ratio)
+			}
+		})
 	}
 }
 
@@ -123,7 +138,7 @@ func TestRenderUsesSourceColorsAndBackground(t *testing.T) {
 		for y := 0; y < 80; y++ {
 			for x := 0; x < 100; x++ {
 				r, g, b, _ := rendered.At(x, y).RGBA()
-				if r == 65535 && g == 0 && b == 0 {
+				if r > 0 && g == 0 && b == 0 {
 					foundRed = true
 				}
 			}

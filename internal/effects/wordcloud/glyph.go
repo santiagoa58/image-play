@@ -21,6 +21,13 @@ type glyphFootprint struct {
 
 func (f *glyphFootprint) Close() { f.mask.Close() }
 
+// fitSize is a centered rectangle that contains every reserved glyph pixel.
+func (f glyphFootprint) fitSize() image.Point {
+	x := max(-f.offset.X, f.offset.X+f.mask.Cols())
+	y := max(-f.offset.Y, f.offset.Y+f.mask.Rows())
+	return image.Pt(2*x, 2*y)
+}
+
 func rasterizeGlyph(word textutil.Word, fontPath string, angle, padding int) (glyphFootprint, error) {
 	margin := int(math.Ceil(word.FontSize)) + padding + 4
 	width, height := int(math.Ceil(word.Width))+2*margin, int(math.Ceil(word.Height))+2*margin

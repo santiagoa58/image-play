@@ -125,27 +125,48 @@ func sampleWordColor(source image.Image, word PlacedWord) color.NRGBA {
 	return best
 }
 
-// contrastingWordColor increases a source color's distance from the canvas.
-// The same transformation works in either direction and keeps the source hue.
+// contrastingWordColor adjusts a sampled color until it is legible on the canvas.
 func contrastingWordColor(c color.NRGBA, background color.Color) color.NRGBA {
 	bg := color.NRGBAModel.Convert(background).(color.NRGBA)
-	channels := [3]float64{float64(c.R), float64(c.G), float64(c.B)}
-	canvas := [3]float64{float64(bg.R), float64(bg.G), float64(bg.B)}
-	contrast := 0.0
-	for i := range channels {
-		contrast = math.Max(contrast, math.Abs(channels[i]-canvas[i]))
+	backgroundLuminance := luminance(bg)
+	contrast := func(candidate color.NRGBA) float64 {
+		light, dark := math.Max(luminance(candidate), backgroundLuminance), math.Min(luminance(candidate), backgroundLuminance)
+		return (light + 0.05) / (dark + 0.05)
 	}
-	if contrast == 0 {
+	if contrast(c) >= 4.5 {
 		return c
 	}
-	scale := 255 * math.Pow(contrast/255, 0.4) / contrast
-	for i := range channels {
-		channels[i] = math.Max(0, math.Min(255, canvas[i]+(channels[i]-canvas[i])*scale))
+	target := color.NRGBA{A: 255}
+	if backgroundLuminance < 0.5 {
+		target.R, target.G, target.B = 255, 255, 255
 	}
-	return color.NRGBA{
-		R: uint8(math.Round(channels[0])),
-		G: uint8(math.Round(channels[1])),
-		B: uint8(math.Round(channels[2])),
-		A: 255,
+	blend := func(t float64) color.NRGBA {
+		return color.NRGBA{
+			R: uint8(math.Round(float64(c.R)*(1-t) + float64(target.R)*t)),
+			G: uint8(math.Round(float64(c.G)*(1-t) + float64(target.G)*t)),
+			B: uint8(math.Round(float64(c.B)*(1-t) + float64(target.B)*t)),
+			A: 255,
+		}
 	}
+	low, high := 0.0, 1.0
+	for range 12 {
+		mid := (low + high) / 2
+		if contrast(blend(mid)) >= 4.5 {
+			high = mid
+		} else {
+			low = mid
+		}
+	}
+	return blend(high)
+}
+
+func luminance(c color.NRGBA) float64 {
+	linear := func(channel uint8) float64 {
+		value := float64(channel) / 255
+		if value <= 0.04045 {
+			return value / 12.92
+		}
+		return math.Pow((value+0.055)/1.055, 2.4)
+	}
+	return 0.2126*linear(c.R) + 0.7152*linear(c.G) + 0.0722*linear(c.B)
 }
