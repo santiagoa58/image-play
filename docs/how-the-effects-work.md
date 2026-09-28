@@ -345,8 +345,8 @@ probes top words and combines two resulting sizes with a harmonic mean.
 Our surrounding placement and sizing rules differ.
 See [the upstream implementation](https://github.com/amueller/word_cloud/blob/main/wordcloud/wordcloud.py).
 
-The default minimum is **6 px for every image**. A positive `MinFontSize`
-overrides it. Large source dimensions do not automatically raise this floor.
+The default minimum is the larger of **8 px** or **1% of the image's shortest
+side, rounded up**. A positive `MinFontSize` overrides it.
 
 Code: [font-range calibration](../internal/effects/wordcloud/sizing.go).
 
@@ -357,13 +357,13 @@ font ten times larger would let it overwhelm the cloud. We compress counts
 logarithmically, then use the square root of that fraction to give intermediate
 counts more of the available size range.
 
-Here is a worked example with counts 1, 10, and 100, a minimum of 6 px, and a
+Here is a worked example with counts 1, 10, and 100, a minimum of 8 px, and a
 maximum of 60 px. These values illustrate sizing, before any packing changes.
 
 | Count | Linear target size | Our target size, approximately |
 | ---: | ---: | ---: |
-| 1 | 6 px | 6 px |
-| 10 | 11 px | 42 px |
+| 1 | 8 px | 8 px |
+| 10 | 13 px | 42 px |
 | 100 | 60 px | 60 px |
 
 The middle word remains smaller than the most frequent word. For readers who
@@ -770,7 +770,7 @@ assign fields before calling `Generate`.
 
 | Word-cloud setting | Default | What a change means |
 | --- | --- | --- |
-| `MinFontSize` | 0, resolved to 6 px | Raising it makes the smallest text larger but can skip more words |
+| `MinFontSize` | 0, resolved to max(8 px, 1% of shortest side rounded up) | Raising it makes the smallest text larger but can skip more words |
 | `WordLimit` | 500 | More distinct candidates to attempt; available space still limits success |
 | `SafeZoneErodeSize` | 3 | A larger positive odd kernel shrinks the permitted shape more |
 | `WordPadding` | 1 px per side | More separation, larger footprints, and less room for words |
@@ -859,8 +859,8 @@ See [word-cloud configuration](../internal/effects/wordcloud/config.go) and
 Changing mosaic width can also cross a font-size multiplier boundary. Doubling
 width does not always double the number of characters across the image.
 Reducing font size adds samples and detail, but eventually the letters become
-hard to read. A cloud's fixed 6 px floor has the same readability tradeoff when
-a large output is displayed as a small preview.
+hard to read. A cloud's image-scaled minimum reduces that readability problem
+on larger outputs while retaining an 8 px floor on smaller images.
 
 ### Read the cloud's intermediate images in order
 

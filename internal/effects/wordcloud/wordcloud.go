@@ -49,7 +49,7 @@ func Generate(cfg Config) error {
 		return fmt.Errorf("prepare mask: %w", err)
 	}
 	defer mask.Close()
-	minFontSize := minimumFontSize(cfg)
+	minFontSize := minimumFontSize(cfg, mask.Width, mask.Height)
 
 	if err := writeMaskDebug(cfg.Debug, outputPath, mask); err != nil {
 		return fmt.Errorf("write mask diagnostics: %w", err)

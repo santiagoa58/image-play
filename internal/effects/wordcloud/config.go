@@ -20,7 +20,8 @@ type Config struct {
 	TextPath string
 	// FontPath points to the TTF/OTF font used for measurement and rendering.
 	FontPath string
-	// MinFontSize overrides the 6px minimum when positive. Zero uses 6px.
+	// MinFontSize overrides the automatic minimum when positive. Zero uses the
+	// larger of 8px or 1% of the image's shortest side, rounded up.
 	MinFontSize float64
 	// WordLimit is the maximum number of candidate words considered. It is not
 	// a promise that every candidate will be placed.
