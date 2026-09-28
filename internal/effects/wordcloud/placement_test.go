@@ -137,37 +137,6 @@ func TestProbeKeepsRectangularReservation(t *testing.T) {
 	}
 }
 
-func TestGlyphOverhangFindsAnotherCenter(t *testing.T) {
-	ctx := placementContextForShape(t, image.Rect(0, 0, 100, 100), 1)
-	ctx.angles = []int{90}
-	word, err := textutil.MeasureWord("I", 1, wordcloudTestFontPath(t), 60)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, _, found, err := ctx.choosePlacementCenter(word, false)
-	if err != nil || !found {
-		t.Fatalf("choose rectangular center: found=%v err=%v", found, err)
-	}
-	glyph, err := rasterizeGlyph(word, ctx.fontPath, 90, ctx.wordPadding)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer glyph.Close()
-	if first.Add(glyph.offset).X >= 0 {
-		t.Fatalf("test needs a center with a glyph overhang: %v", first)
-	}
-	placed, err := ctx.Place(word, 60, 60)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if placed.Angle != 90 || placed.Word.FontSize != 60 || int(placed.X) == first.X {
-		t.Fatalf("did not keep size and choose a safe vertical center: %+v", placed)
-	}
-	if !image.Pt(int(placed.X)+glyph.offset.X, int(placed.Y)+glyph.offset.Y).In(image.Rect(0, 0, 100, 100)) {
-		t.Fatal("glyph origin remained outside the canvas")
-	}
-}
-
 func TestGlyphReservationCoversRenderedPixelsAtBothAngles(t *testing.T) {
 	for _, angle := range []int{0, 90} {
 		t.Run(fmt.Sprintf("%d-degrees", angle), func(t *testing.T) {

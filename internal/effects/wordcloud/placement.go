@@ -67,20 +67,14 @@ func (ctx *PlacementContext) Place(word textutil.Word, maxFontSize, minFontSize 
 	if err != nil {
 		return PlacedWord{}, err
 	}
-	for size := int(fittingWord.FontSize); size >= minimum; size-- {
-		candidate := fittingWord
-		if size != int(fittingWord.FontSize) {
-			candidate, err = textutil.Resize(word, float64(size))
-			if err != nil {
-				return PlacedWord{}, err
-			}
-		}
-		placed, ok, err := ctx.tryPlaceAtSize(candidate)
-		if err != nil || ok {
-			return placed, err
-		}
+	placed, ok, err := ctx.tryPlaceAtSize(fittingWord)
+	if err != nil {
+		return PlacedWord{}, err
 	}
-	return PlacedWord{}, fmt.Errorf("%w at %dpx", errNoPlacement, minimum)
+	if !ok {
+		return PlacedWord{}, errors.New("fitting size became unavailable before reservation")
+	}
+	return placed, nil
 }
 
 // findSmallerFittingWord searches without reserving space. The desired size
@@ -148,7 +142,7 @@ func (ctx *PlacementContext) fits(word textutil.Word) (bool, error) {
 }
 
 func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, bool, error) {
-	center, angle, found, err := ctx.choosePlacementCenter(word, false)
+	center, angle, found, err := ctx.choosePlacementCenter(word)
 	if err != nil || !found {
 		return PlacedWord{}, false, err
 	}
@@ -158,29 +152,8 @@ func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, boo
 			return PlacedWord{}, false, err
 		}
 		defer glyph.Close()
-		reserved, err := ctx.reserveGlyph(glyph, ctx.footprint(word, angle), center)
-		if err != nil {
+		if err := ctx.reserveGlyph(glyph, ctx.footprint(word, angle), center); err != nil {
 			return PlacedWord{}, false, err
-		}
-		if !reserved {
-			// The measured rectangle fitted, but the rendered ink overhangs it.
-			// Search legal centers with both the rectangle and glyph validated.
-			center, angle, found, err = ctx.choosePlacementCenter(word, true)
-			if err != nil || !found {
-				return PlacedWord{}, false, err
-			}
-			corrected, err := rasterizeGlyph(word, ctx.fontPath, angle, ctx.wordPadding)
-			if err != nil {
-				return PlacedWord{}, false, err
-			}
-			defer corrected.Close()
-			reserved, err = ctx.reserveGlyph(corrected, ctx.footprint(word, angle), center)
-			if err != nil {
-				return PlacedWord{}, false, err
-			}
-			if !reserved {
-				return PlacedWord{}, false, errors.New("glyph-safe center could not be reserved")
-			}
 		}
 	} else {
 		if err := ctx.reserveFootprint(ctx.footprint(word, angle), center); err != nil {
@@ -190,7 +163,7 @@ func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, boo
 	return PlacedWord{Word: word, X: float64(center.X), Y: float64(center.Y), Angle: angle}, true, nil
 }
 
-func (ctx *PlacementContext) choosePlacementCenter(word textutil.Word, checkGlyph bool) (image.Point, int, bool, error) {
+func (ctx *PlacementContext) choosePlacementCenter(word textutil.Word) (image.Point, int, bool, error) {
 	options := make([]orientedCenters, 0, len(ctx.angles))
 	defer func() {
 		for _, option := range options {
@@ -202,38 +175,19 @@ func (ctx *PlacementContext) choosePlacementCenter(word textutil.Word, checkGlyp
 		if err != nil {
 			return image.Point{}, 0, false, err
 		}
-		if checkGlyph {
-			glyph, err := rasterizeGlyph(word, ctx.fontPath, angle, ctx.wordPadding)
-			if err != nil {
-				centers.Close()
-				return image.Point{}, 0, false, err
-			}
-			allowed, err := ctx.space.ValidCentersMask(glyph.mask, glyph.offset)
-			glyph.Close()
-			if err != nil {
-				centers.Close()
-				return image.Point{}, 0, false, err
-			}
-			filtered := gocv.NewMat()
-			err = gocv.BitwiseAnd(centers, allowed, &filtered)
-			centers.Close()
-			allowed.Close()
-			if err != nil {
-				filtered.Close()
-				return image.Point{}, 0, false, err
-			}
-			centers = filtered
-		}
 		options = append(options, orientedCenters{angle: angle, centers: centers})
 	}
 	return ctx.regions.choose(options)
 }
 
-func (ctx *PlacementContext) reserveGlyph(glyph glyphFootprint, rectangle, center image.Point) (bool, error) {
+func (ctx *PlacementContext) reserveGlyph(glyph glyphFootprint, rectangle, center image.Point) error {
 	origin := center.Add(glyph.offset)
 	reserved, err := ctx.space.ReserveMask(glyph.mask, origin)
-	if err != nil || !reserved {
-		return false, err
+	if err != nil {
+		return err
+	}
+	if !reserved {
+		return ctx.reserveFootprint(rectangle, center)
 	}
 	// Keep the original rectangular region score. Only collision space uses the
 	// glyph shape; region ranking is independent of the font's stroke weight.
@@ -244,9 +198,9 @@ func (ctx *PlacementContext) reserveGlyph(glyph glyphFootprint, rectangle, cente
 	updated := gocv.NewMat()
 	defer updated.Close()
 	if err := gocv.BitwiseOr(occupied, glyph.mask, &updated); err != nil {
-		return false, err
+		return err
 	}
-	return true, updated.CopyTo(&occupied)
+	return updated.CopyTo(&occupied)
 }
 
 // reserveFootprint keeps free space, region usage, and diagnostics in sync.

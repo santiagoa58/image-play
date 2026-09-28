@@ -419,8 +419,9 @@ words, the renderer's glyph pixels are rasterized once after choosing a center,
 enclosed letter holes are filled, and padding expands the shape. Only those
 pixels are removed from free space. Space around and between large letters can
 then hold later words, while small words keep the faster rectangular path. If
-glyph pixels overhang the measured rectangle into unavailable space, placement
-checks another center against both shapes instead of accepting the collision.
+glyph pixels extend into unavailable space beyond the measured rectangle,
+placement falls back to reserving the rectangle. The fit check uses font
+measurements, which can differ slightly from the rendered pixels.
 
 ### Step 8: Find every legal center
 
@@ -466,9 +467,8 @@ The erosion anchor and reservation use the same convention. Matching those two
 operations prevents one-pixel disagreements about what a center represents.
 
 **“Exact fit” refers to these measured, padded rectangles on the integer grid.**
-The glyph reservation for larger words changes subsequent free space. A
-rendered glyph that overhangs its measured rectangle gets an additional fit
-check. It does not mean perfect image
+The glyph reservation for larger words changes subsequent free space, but not
+the placement search. It does not mean perfect image
 segmentation or a globally optimal arrangement. Tests compare the center maps against checking
 every rectangle pixel directly on small irregular shapes.
 
