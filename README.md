@@ -23,9 +23,9 @@ Code links and configuration examples connect each idea to the implementation.
 ## Example effects
 
 The same source image and text can be rendered with either supported effect.
-These previews were generated using
-`testdata/images/gen-img-couple.png`, the sample text, and the included
-Noto Sans Mono font.
+These previews use `testdata/images/gen-img-couple.png` and the same sample
+text. The word cloud uses Noto Sans Bold with uppercase display; the text
+mosaic uses Noto Sans Mono.
 
 <table>
   <tr>
@@ -49,23 +49,28 @@ transparent background.
 
 The word-cloud pipeline turns a source image into a placement silhouette, sizes
 words by frequency, then packs those words inside the silhouette. Each word
-uses the average source color beneath its rectangle. A dark image border selects
-bright foreground and a black canvas; other images use dark foreground on white.
+uses a representative source color beneath its rectangle. A dark image border
+selects bright foreground and a black canvas; other images use dark foreground on white.
 This preserves colored highlights and dark interior gaps in images such as
 `testdata/images/darth_vader_og.jpg`. Transparent borders keep dark-foreground
 selection. Border detection is a heuristic; it does not recognize objects.
+
+The supplied `-font` path determines the typeface and weight. This example uses
+Noto Sans Bold and `-uppercase` for display; word counts are unchanged. See
+[font attribution](fonts/README.md).
 
 ```bash
 go run ./cmd/mosaic \
   -effect wordcloud \
   -in testdata/images/gen-img-couple.png \
   -text testdata/text/sample_text_message.txt \
-  -font "fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+  -font fonts/NotoSans-Bold.ttf \
+  -uppercase \
   -out output.png
 ```
 
 Current defaults include 0/90-degree placement, logarithmic frequency scaling,
-rectangular word footprints, an automatic maximum font size, and up to 500
+rectangular fit checks, an automatic maximum font size, and up to 500
 candidate words. The default minimum size is 6 px for every image. The
 candidate limit is a source pool: words that cannot fit at the minimum size in
 either orientation are skipped.
@@ -109,12 +114,12 @@ The main package boundaries are:
 ## Placement geometry
 
 The low-level geometry is isolated in `internal/layout`. `FreeSpace` keeps a
-binary map of the silhouette minus the rectangles already placed. OpenCV's
+binary map of the remaining silhouette. OpenCV's
 rectangular erosion returns every integer center at which a measured, padded
-rectangle fits wholly within that map. The same rectangle is removed when the
-word is placed. Tests compare the result pixel for pixel against exhaustive
-rectangle checks on small irregular shapes. The exactness claim applies to
-these padded rectangles, not individual glyph outlines.
+word rectangle fits wholly within that map. Words at 24 px or smaller reserve
+the rectangle. Larger words reserve only their padded, rendered glyph pixels,
+leaving space around the letters for later words. Tests compare legal centers
+against exhaustive rectangle checks on small irregular shapes.
 
 The separate region policy draws on [ShapeWordle's](https://www.microsoft.com/en-us/research/publication/shapewordle-tailoring-wordles-using-shape-aware-archimedean-spirals/)
 use of distance and shape parts. Deep, separated points seed regions, and a
@@ -126,12 +131,12 @@ region's occupied fraction ranks legal positions; it never rules out a fit.
 Words are processed in frequency order. The default minimum is 6 px for every
 image; a positive `MinFontSize` overrides it. The default maximum is calibrated
 against the image by probing the most important words in a fresh layout. Frequency
-maps words logarithmically into this range. When a desired size does not fit,
+maps counts logarithmically, then spreads intermediate counts toward larger
+sizes within this range. When a desired size does not fit,
 placement binary-searches whole-pixel font sizes down to the minimum.
 
-The maximum starting size for each new word is capped by the previous
-successfully placed word's actual size. This keeps rendered sizes
-non-increasing even when an important word had to shrink to fit.
+Each word starts at its own frequency-derived size. Shrinking one word to fit
+does not cap the sizes attempted for later words.
 
 When words have equal frequency, their measured rectangle area breaks the tie:
 larger, harder-to-fit words are attempted before smaller gap-filling words.
@@ -139,9 +144,10 @@ larger, harder-to-fit words are attempted before smaller gap-filling words.
 Fit checks consider both configured orientations across the complete remaining
 free space. At the chosen size, placement favors a less-filled shape region,
 then the configured orientation order (horizontal first by default), then the
-deepest legal center in that region. Each reserved rectangle contributes its
-actual occupied area to every region it crosses. A skipped word has no legal
-position in either orientation at the permitted minimum size.
+deepest legal center in that region. Each word credits its measured rectangle
+to region coverage, while the free-space mask reserves glyph pixels for larger
+words. A skipped word has no legal position in either orientation at the
+permitted minimum size.
 
 ## Text mosaic
 
@@ -211,9 +217,8 @@ go build -o ./bin/mosaic ./cmd/mosaic
 ```
 
 CI checks formatting, module tidiness, `go vet`, the full test suite, the
-deployable Docker image, and all combinations of supported effects and images
-under `testdata/images`. The generated PNGs are uploaded as a short-lived
-workflow artifact so visual output can be reviewed.
+deployable Docker image, and that both effects generate PNGs for the images
+under `testdata/images`.
 
 The repository Dockerfile provides the OpenCV toolchain and runtime stages used
 for local and container builds.

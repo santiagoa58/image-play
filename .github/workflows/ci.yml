@@ -69,6 +69,12 @@ jobs:
             stem="${name%.*}"
 
             for effect in wordcloud textmosaic; do
+              font="/work/fonts/NotoSansMono-VariableFont_wdth,wght.ttf"
+              display_flags=()
+              if [[ "$effect" == wordcloud ]]; then
+                font=/work/fonts/NotoSans-Bold.ttf
+                display_flags=(-uppercase)
+              fi
               echo "::group::$effect — $name"
               docker run --rm \
                 -v "$PWD/testdata:/work/testdata:ro" \
@@ -78,18 +84,11 @@ jobs:
                 -effect "$effect" \
                 -in "/work/$image" \
                 -text /work/testdata/text/sample_text_message.txt \
-                -font "/work/fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+                -font "$font" \
+                "${display_flags[@]}" \
                 -out "/work/output/$effect/$stem.png"
               test -s "ci-output/$effect/$stem.png"
               file "ci-output/$effect/$stem.png"
               echo "::endgroup::"
             done
           done
-
-      - name: Upload visual test outputs
-        uses: actions/upload-artifact@v4
-        with:
-          name: visual-test-results
-          path: ci-output/**/*.png
-          if-no-files-found: error
-          retention-days: 7

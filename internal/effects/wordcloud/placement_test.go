@@ -2,9 +2,12 @@ package wordcloud
 
 import (
 	"errors"
+	"fmt"
 	"image"
+	"math"
 	"testing"
 
+	"github.com/fogleman/gg"
 	"github.com/santiagoa58/image-play/internal/imageutil"
 	"github.com/santiagoa58/image-play/internal/layout"
 	"github.com/santiagoa58/image-play/internal/textutil"
@@ -14,7 +17,7 @@ import (
 func TestPlaceFindsAPositionOutsideOldSearchCenters(t *testing.T) {
 	ctx := placementContextForShape(t, image.Rect(70, 70, 92, 90), 0)
 	word := textutil.Word{Text: "test", FontSize: 10, Width: 12, Height: 7}
-	placed, err := ctx.Place(word, 10, 10)
+	placed, err := ctx.Place(word, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +29,7 @@ func TestPlaceFindsAPositionOutsideOldSearchCenters(t *testing.T) {
 func TestPlaceUsesVerticalWhenHorizontalCannotFit(t *testing.T) {
 	ctx := placementContextForShape(t, image.Rect(46, 20, 54, 80), 0)
 	word := textutil.Word{Text: "test", FontSize: 10, Width: 30, Height: 6}
-	placed, err := ctx.Place(word, 10, 10)
+	placed, err := ctx.Place(word, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +41,7 @@ func TestPlaceUsesVerticalWhenHorizontalCannotFit(t *testing.T) {
 func TestPlaceSkipsOnlyWhenMinimumCannotFit(t *testing.T) {
 	ctx := placementContextForShape(t, image.Rect(40, 40, 45, 45), 0)
 	word := textutil.Word{Text: "test", FontSize: 10, Width: 30, Height: 8}
-	_, err := ctx.Place(word, 10, 10)
+	_, err := ctx.Place(word, 10)
 	if !errors.Is(err, errNoPlacement) {
 		t.Fatalf("error = %v, want errNoPlacement", err)
 	}
@@ -50,7 +53,7 @@ func TestPlaceFindsLargestFittingSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	placed, err := ctx.Place(word, 80, 6)
+	placed, err := ctx.Place(word, 6)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,6 +83,78 @@ func TestFootprintAccountsForPaddingAndRotation(t *testing.T) {
 	}
 	if got := ctx.footprint(word, 90); got != image.Pt(16, 26) {
 		t.Errorf("vertical footprint = %v, want (16,26)", got)
+	}
+}
+
+func TestLargeWordReservesGlyphWhileSmallWordReservesRectangle(t *testing.T) {
+	for _, size := range []float64{24, 60} {
+		t.Run(fmt.Sprintf("%.0fpx", size), func(t *testing.T) {
+			ctx := placementContextForShape(t, image.Rect(0, 0, 100, 100), 1)
+			word, err := textutil.MeasureWord("I", 1, wordcloudTestFontPath(t), size)
+			if err != nil {
+				t.Fatal(err)
+			}
+			placed, err := ctx.Place(word, size)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if placed.Word.FontSize != size {
+				t.Fatalf("font size = %v, want %v", placed.Word.FontSize, size)
+			}
+			free := ctx.space.Snapshot()
+			occupied := gocv.CountNonZero(*ctx.safeZone) - gocv.CountNonZero(free)
+			free.Close()
+			rect := ctx.footprint(word, placed.Angle)
+			regionCredit := 0
+			for _, count := range ctx.regions.occupied {
+				regionCredit += count
+			}
+			if regionCredit != rect.X*rect.Y {
+				t.Fatalf("region credited %d pixels, want measured rectangle of %d", regionCredit, rect.X*rect.Y)
+			}
+			if size <= 24 && occupied != rect.X*rect.Y {
+				t.Fatalf("small word occupied %d pixels, want rectangle of %d", occupied, rect.X*rect.Y)
+			}
+			if size > 24 && occupied >= rect.X*rect.Y {
+				t.Fatalf("large word occupied %d pixels, want less than rectangle of %d", occupied, rect.X*rect.Y)
+			}
+		})
+	}
+}
+
+func TestGlyphReservationCoversRenderedPixelsAtBothAngles(t *testing.T) {
+	for _, angle := range []int{0, 90} {
+		t.Run(fmt.Sprintf("%d-degrees", angle), func(t *testing.T) {
+			ctx := placementContextForShape(t, image.Rect(0, 0, 100, 100), 1)
+			ctx.angles = []int{angle}
+			fontPath := wordcloudTestFontPath(t)
+			word, err := textutil.MeasureWord("I", 1, fontPath, 60)
+			if err != nil {
+				t.Fatal(err)
+			}
+			placed, err := ctx.Place(word, 60)
+			if err != nil {
+				t.Fatal(err)
+			}
+			dc := gg.NewContext(100, 100)
+			if err := dc.LoadFontFace(fontPath, 60); err != nil {
+				t.Fatal(err)
+			}
+			dc.SetRGBA(1, 1, 1, 1)
+			dc.Translate(placed.X, placed.Y)
+			dc.Rotate(float64(angle) * math.Pi / 180)
+			dc.DrawStringAnchored(word.Text, 0, 0, 0.5, 0.5)
+			ink := dc.Image().(*image.RGBA)
+			free := ctx.space.Snapshot()
+			defer free.Close()
+			for y := 0; y < 100; y++ {
+				for x := 0; x < 100; x++ {
+					if ink.Pix[y*ink.Stride+x*4+3] != 0 && ctx.safeZone.GetUCharAt(y, x) != 0 && free.GetUCharAt(y, x) != 0 {
+						t.Fatalf("rendered glyph pixel (%d,%d) was not reserved", x, y)
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -121,7 +196,7 @@ func placementContextForShape(t *testing.T, rect image.Rectangle, padding int) *
 	}
 	mask := &imageutil.Mask{BinaryMat: &binary, DistMat: depth}
 	t.Cleanup(mask.Close)
-	ctx, err := NewPlacementContext(mask, NewConfig())
+	ctx, err := NewPlacementContext(mask, NewConfig(WithFontPath(wordcloudTestFontPath(t))))
 	if err != nil {
 		t.Fatal(err)
 	}

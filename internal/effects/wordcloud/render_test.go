@@ -4,6 +4,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -33,7 +34,7 @@ func TestSampleWordColorFollowsPositionAndRotation(t *testing.T) {
 		{"left", 5, 0, red}, {"right", 15, 0, blue},
 		// The rotated footprint crosses both halves only after the dimensions swap.
 		{"unrotated", 7, 0, red},
-		{"vertical", 7, 90, color.NRGBA{R: 223, B: 31, A: 255}},
+		{"vertical", 7, 90, red},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			word := PlacedWord{Word: textutil.Word{Width: 4, Height: 8}, X: tc.x, Y: 10, Angle: tc.angle}
@@ -50,7 +51,7 @@ func TestSampleWordColorIgnoresHiddenRGBAndWeightsAlpha(t *testing.T) {
 	source.SetNRGBA(1, 0, color.NRGBA{B: 255, A: 85})
 	source.SetNRGBA(2, 0, color.NRGBA{G: 255, A: 0})
 	word := PlacedWord{Word: textutil.Word{Width: 3, Height: 1}, X: 1.5, Y: 0.5}
-	want := color.NRGBA{R: 191, B: 63, A: 255}
+	want := color.NRGBA{R: 255, A: 255}
 	if got := sampleWordColor(source, word); got != want {
 		t.Fatalf("color = %v, want %v", got, want)
 	}
@@ -59,6 +60,49 @@ func TestSampleWordColorIgnoresHiddenRGBAndWeightsAlpha(t *testing.T) {
 	word.Word.Width = 4
 	if got := sampleWordColor(source, word); got != (color.NRGBA{R: 255, A: 255}) {
 		t.Fatalf("clipped color = %v", got)
+	}
+}
+
+func TestSampleWordColorKeepsDominantSourceHue(t *testing.T) {
+	source := image.NewNRGBA(image.Rect(0, 0, 3, 1))
+	red := color.NRGBA{R: 255, A: 255}
+	yellow := color.NRGBA{R: 255, G: 255, A: 255}
+	source.SetNRGBA(0, 0, red)
+	source.SetNRGBA(1, 0, red)
+	source.SetNRGBA(2, 0, yellow)
+	word := PlacedWord{Word: textutil.Word{Width: 3, Height: 1}, X: 1.5, Y: 0.5}
+	if got := sampleWordColor(source, word); got != red {
+		t.Fatalf("color = %v, want actual dominant source color %v", got, red)
+	}
+}
+
+func TestContrastingWordColorMovesAwayFromEitherCanvas(t *testing.T) {
+	gray := color.NRGBA{R: 48, G: 48, B: 48, A: 255}
+	got := contrastingWordColor(gray, color.Black)
+	if got.R <= gray.R || got.R != got.G || got.G != got.B {
+		t.Fatalf("dark gray = %v, want a brighter neutral gray", got)
+	}
+	light := color.NRGBA{R: 230, G: 220, B: 210, A: 255}
+	got = contrastingWordColor(light, color.White)
+	if got.R >= light.R || got.G >= light.G || got.B >= light.B {
+		t.Fatalf("light color = %v, want darker color against white", got)
+	}
+	for _, tc := range []struct {
+		name       string
+		foreground color.NRGBA
+		background color.Color
+	}{
+		{"green on white", color.NRGBA{G: 255, A: 255}, color.White},
+		{"black on black", color.NRGBA{A: 255}, color.Black},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := contrastingWordColor(tc.foreground, tc.background)
+			bg := color.NRGBAModel.Convert(tc.background).(color.NRGBA)
+			light, dark := math.Max(luminance(got), luminance(bg)), math.Min(luminance(got), luminance(bg))
+			if ratio := (light + 0.05) / (dark + 0.05); ratio < 4.5 {
+				t.Fatalf("color = %v, contrast ratio = %.2f, want at least 4.5", got, ratio)
+			}
+		})
 	}
 }
 
@@ -94,7 +138,7 @@ func TestRenderUsesSourceColorsAndBackground(t *testing.T) {
 		for y := 0; y < 80; y++ {
 			for x := 0; x < 100; x++ {
 				r, g, b, _ := rendered.At(x, y).RGBA()
-				if r == 65535 && g == 0 && b == 0 {
+				if r > 0 && g == 0 && b == 0 {
 					foundRed = true
 				}
 			}

@@ -7,7 +7,7 @@ import (
 	"gocv.io/x/gocv"
 )
 
-// FreeSpace owns the remaining pixels available for rectangular placements.
+// FreeSpace owns the remaining pixels available for word placements.
 // Nonzero pixels in the initial mask are free. The caller must Close it.
 type FreeSpace struct {
 	free gocv.Mat
@@ -72,6 +72,31 @@ func (s *FreeSpace) Reserve(size, center image.Point) bool {
 	}
 	area.SetTo(gocv.NewScalar(0, 0, 0, 0))
 	return true
+}
+
+// ReserveMask subtracts glyph pixels from free space at origin, clipping them
+// to the image when the rendered ink exceeds its measured fit rectangle.
+func (s *FreeSpace) ReserveMask(mask gocv.Mat, origin image.Point) error {
+	full := image.Rectangle{Min: origin, Max: origin.Add(image.Pt(mask.Cols(), mask.Rows()))}
+	rect := full.Intersect(image.Rect(0, 0, s.free.Cols(), s.free.Rows()))
+	if rect.Empty() {
+		return nil
+	}
+	area := s.free.Region(rect)
+	defer area.Close()
+	part := mask.Region(rect.Sub(origin))
+	defer part.Close()
+	inverse := gocv.NewMat()
+	defer inverse.Close()
+	if err := gocv.BitwiseNot(part, &inverse); err != nil {
+		return err
+	}
+	remaining := gocv.NewMat()
+	defer remaining.Close()
+	if err := gocv.BitwiseAnd(area, inverse, &remaining); err != nil {
+		return err
+	}
+	return remaining.CopyTo(&area)
 }
 
 // Snapshot returns a copy of the remaining free pixels for diagnostics.

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/santiagoa58/image-play/internal/imageutil"
@@ -18,7 +19,8 @@ import (
 //   - imageutil derives the silhouette and distance transform;
 //   - textutil counts, sizes, and measures candidate words;
 //   - this package chooses sizes, shape regions, orientations, and positions;
-//   - layout.FreeSpace supplies exact rectangular fit and reservation;
+//   - layout.FreeSpace supplies exact rectangular fit and reserves either
+//     rectangular or rendered-glyph footprints;
 //   - the renderer draws the accepted layout.
 //
 // A candidate that cannot fit at the minimum size is skipped; WordLimit is a
@@ -62,6 +64,8 @@ func Generate(cfg Config) error {
 	if err != nil {
 		return fmt.Errorf("count words: %w", err)
 	}
+
+	wordCounts = displayWordCounts(wordCounts, cfg.Uppercase)
 
 	// 4. Resolve an image-appropriate maximum size, then measure candidates.
 	maxFontSize, err := resolveMaxFontSize(mask, wordCounts, cfg)
@@ -110,13 +114,7 @@ func Generate(cfg Config) error {
 	for i, w := range words {
 		percent := 100 * (i + 1) / len(words)
 		fmt.Printf("\rProgress: [%3d%%] %d/%d", percent, i+1, len(words))
-		prevFontSize := maxFontSize
-		if len(placed) > 0 {
-			last := placed[len(placed)-1]
-			prevFontSize = last.Word.FontSize
-		}
-
-		p, err := placeCtx.Place(w, prevFontSize, minFontSize)
+		p, err := placeCtx.Place(w, minFontSize)
 		if err != nil {
 			if errors.Is(err, errNoPlacement) {
 				skipped++
@@ -172,4 +170,16 @@ func Generate(cfg Config) error {
 		"total_duration", time.Since(started),
 	)
 	return nil
+}
+
+func displayWordCounts(counts textutil.WordCounts, uppercase bool) textutil.WordCounts {
+	if !uppercase {
+		return counts
+	}
+	result := make(textutil.WordCounts, len(counts))
+	copy(result, counts)
+	for i := range result {
+		result[i].Word = strings.ToUpper(result[i].Word)
+	}
+	return result
 }

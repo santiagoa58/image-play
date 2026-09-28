@@ -33,7 +33,7 @@ func Render(
 			)
 		}
 
-		dc.SetColor(sampleWordColor(source, p))
+		dc.SetColor(contrastingWordColor(sampleWordColor(source, p), canvasColor(darkBackground)))
 		dc.Push()
 		dc.Translate(p.X, p.Y)
 		dc.Rotate(float64(p.Angle) * math.Pi / 180)
@@ -59,9 +59,9 @@ func canvasColor(darkBackground bool) color.Color {
 	return color.White
 }
 
-// sampleWordColor averages the source under a word's measured rectangle. Each
-// word has one color, so letters remain legible across small source variations.
-// Alpha weights visible contributions; hidden RGB cannot tint the result.
+// sampleWordColor selects a source color from the most prevalent color family
+// beneath the word's measured rectangle. This avoids making
+// a muted, artificial blend across differently colored source pixels.
 func sampleWordColor(source image.Image, word PlacedWord) color.NRGBA {
 	width, height := word.Word.Width, word.Word.Height
 	if word.Angle == 90 {
@@ -74,23 +74,99 @@ func sampleWordColor(source image.Image, word PlacedWord) color.NRGBA {
 		int(math.Ceil(word.X+width/2))+bounds.Min.X,
 		int(math.Ceil(word.Y+height/2))+bounds.Min.Y,
 	).Intersect(bounds)
-	var red, green, blue, alpha uint64
+	type bucket struct{ weight, red, green, blue uint64 }
+	buckets := make(map[uint16]bucket)
 	for y := area.Min.Y; y < area.Max.Y; y++ {
 		for x := area.Min.X; x < area.Max.X; x++ {
-			r, g, b, a := source.At(x, y).RGBA()
-			red += uint64(r)
-			green += uint64(g)
-			blue += uint64(b)
-			alpha += uint64(a)
+			c := color.NRGBAModel.Convert(source.At(x, y)).(color.NRGBA)
+			if c.A == 0 {
+				continue
+			}
+			key := uint16(c.R/16)<<8 | uint16(c.G/16)<<4 | uint16(c.B/16)
+			b := buckets[key]
+			weight := uint64(c.A)
+			b.weight += weight
+			b.red += uint64(c.R) * weight
+			b.green += uint64(c.G) * weight
+			b.blue += uint64(c.B) * weight
+			buckets[key] = b
 		}
 	}
-	if alpha == 0 {
+	var chosen bucket
+	var chosenKey uint16
+	for key, b := range buckets {
+		if b.weight > chosen.weight || b.weight == chosen.weight && key < chosenKey {
+			chosen, chosenKey = b, key
+		}
+	}
+	if chosen.weight == 0 {
 		return color.NRGBA{A: 255}
 	}
-	return color.NRGBA{
-		R: uint8(red * 255 / alpha),
-		G: uint8(green * 255 / alpha),
-		B: uint8(blue * 255 / alpha),
-		A: 255,
+	meanRed := int(chosen.red / chosen.weight)
+	meanGreen := int(chosen.green / chosen.weight)
+	meanBlue := int(chosen.blue / chosen.weight)
+	bestDistance := int(^uint(0) >> 1)
+	best := color.NRGBA{A: 255}
+	for y := area.Min.Y; y < area.Max.Y; y++ {
+		for x := area.Min.X; x < area.Max.X; x++ {
+			c := color.NRGBAModel.Convert(source.At(x, y)).(color.NRGBA)
+			key := uint16(c.R/16)<<8 | uint16(c.G/16)<<4 | uint16(c.B/16)
+			if c.A == 0 || key != chosenKey {
+				continue
+			}
+			dr, dg, db := int(c.R)-meanRed, int(c.G)-meanGreen, int(c.B)-meanBlue
+			distance := dr*dr + dg*dg + db*db
+			if distance < bestDistance {
+				bestDistance, best = distance, c
+			}
+		}
 	}
+	best.A = 255
+	return best
+}
+
+// contrastingWordColor adjusts a sampled color until it is legible on the canvas.
+func contrastingWordColor(c color.NRGBA, background color.Color) color.NRGBA {
+	bg := color.NRGBAModel.Convert(background).(color.NRGBA)
+	backgroundLuminance := luminance(bg)
+	contrast := func(candidate color.NRGBA) float64 {
+		light, dark := math.Max(luminance(candidate), backgroundLuminance), math.Min(luminance(candidate), backgroundLuminance)
+		return (light + 0.05) / (dark + 0.05)
+	}
+	if contrast(c) >= 4.5 {
+		return c
+	}
+	target := color.NRGBA{A: 255}
+	if backgroundLuminance < 0.5 {
+		target.R, target.G, target.B = 255, 255, 255
+	}
+	blend := func(t float64) color.NRGBA {
+		return color.NRGBA{
+			R: uint8(math.Round(float64(c.R)*(1-t) + float64(target.R)*t)),
+			G: uint8(math.Round(float64(c.G)*(1-t) + float64(target.G)*t)),
+			B: uint8(math.Round(float64(c.B)*(1-t) + float64(target.B)*t)),
+			A: 255,
+		}
+	}
+	low, high := 0.0, 1.0
+	for range 12 {
+		mid := (low + high) / 2
+		if contrast(blend(mid)) >= 4.5 {
+			high = mid
+		} else {
+			low = mid
+		}
+	}
+	return blend(high)
+}
+
+func luminance(c color.NRGBA) float64 {
+	linear := func(channel uint8) float64 {
+		value := float64(channel) / 255
+		if value <= 0.04045 {
+			return value / 12.92
+		}
+		return math.Pow((value+0.055)/1.055, 2.4)
+	}
+	return 0.2126*linear(c.R) + 0.7152*linear(c.G) + 0.0722*linear(c.B)
 }

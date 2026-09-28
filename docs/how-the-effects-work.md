@@ -66,13 +66,15 @@ go run ./cmd/mosaic \
   -effect wordcloud \
   -in testdata/images/gen-img-couple.png \
   -text testdata/text/sample_text_message.txt \
-  -font "fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+  -font fonts/NotoSans-Bold.ttf \
+  -uppercase \
   -out wordcloud.png
 ```
 
-To make the other effect, change `-effect wordcloud` to `-effect textmosaic` and
-`-out wordcloud.png` to `-out textmosaic.png`. The file paths are the same.
-The quotation marks keep the font path together as one command argument.
+For text mosaic, change the effect and output path, use
+`-font "fonts/NotoSansMono-VariableFont_wdth,wght.ttf"`, and omit `-uppercase`.
+The image and text paths stay the same. The quotation marks keep the mono font
+path together as one command argument.
 
 Open the mosaic over a dark background to see its light characters clearly.
 Its PNG is transparent; the dark background in the preview above is for display.
@@ -171,7 +173,7 @@ flowchart TD
     shape --> words --> place --> draw
 ```
 
-Stage 3 repeats for each candidate word. Reserving a rectangle leaves less free
+Stage 3 repeats for each candidate word. Reserving its footprint leaves less free
 space for the next word. If a word cannot fit even at the minimum size, skip it
 and try the next candidate. After all candidates have been considered, stage 4
 draws the accepted layout.
@@ -319,9 +321,9 @@ small **probe**, or trial layout, using the real shape, font, and important word
 
 The trial starts with the larger of the image height and the minimum font size.
 It tries candidates in frequency order until two words have been placed or the
-candidate pool is exhausted. The second successful word starts no larger than
-the first successful word's actual size. Trial reservations are thrown away;
-the real layout starts with fresh space.
+candidate pool is exhausted. Each candidate starts at the image-height trial
+size and can shrink to fit. Trial reservations are thrown away; the real
+layout starts with fresh space.
 
 When two successes have sizes `a` and `b`, the maximum is their **harmonic mean**,
 rounded to a whole pixel and kept at least as large as the minimum:
@@ -351,26 +353,27 @@ Code: [font-range calibration](../internal/effects/wordcloud/sizing.go).
 ### Step 6: Translate frequency into a target size
 
 A count of 100 should look more prominent than a count of 10, but making its
-font ten times larger would let it overwhelm the cloud. We use **logarithmic
-scaling**, which compresses differences between large counts.
+font ten times larger would let it overwhelm the cloud. We compress counts
+logarithmically, then use the square root of that fraction to give intermediate
+counts more of the available size range.
 
 Here is a worked example with counts 1, 10, and 100, a minimum of 6 px, and a
 maximum of 60 px. These values illustrate sizing, before any packing changes.
 
-| Count | Linear target size | Our logarithmic target size, approximately |
+| Count | Linear target size | Our target size, approximately |
 | ---: | ---: | ---: |
 | 1 | 6 px | 6 px |
-| 10 | 11 px | 29 px |
+| 10 | 11 px | 42 px |
 | 100 | 60 px | 60 px |
 
-The logarithmic rule gives the middle word enough size to be visible. For readers
-who want to calculate it, the implementation uses `log(1 + count)`:
+The middle word remains smaller than the most frequent word. For readers who
+want to calculate it, the implementation uses `log(1 + count)`:
 
 ```text
 fraction = [ln(1 + count) − ln(1 + smallestCount)]
            / [ln(1 + largestCount) − ln(1 + smallestCount)]
 
-targetSize = minimumSize + fraction × (maximumSize − minimumSize)
+targetSize = minimumSize + √fraction × (maximumSize − minimumSize)
 ```
 
 `ln` is the natural logarithm. You can understand the behavior without knowing
@@ -391,11 +394,11 @@ chance before smaller words fragment the available space.
 Code: [logarithmic scaling](../internal/mathutil/scale.go) and
 [word sizing and measurement](../internal/textutil/words.go).
 
-### Step 7: Give each word a padded rectangular footprint
+### Step 7: Measure a padded rectangle for fit
 
-A **footprint** is the rectangle reserved for a word, including padding. If a
+A **fit rectangle** includes a word's measured width, height, and padding. If a
 word measures 20 pixels wide and 10 high, with 1 pixel of padding on each side,
-its horizontal footprint is 22 × 12. At 90 degrees it becomes 12 × 22.
+its horizontal fit rectangle is 22 × 12. At 90 degrees it becomes 12 × 22.
 
 ```text
 footprintWidth  = ceil(measuredWidth  + 2 × padding)
@@ -409,19 +412,20 @@ which makes complete collision checks straightforward.
 Padding keeps words apart. It is different from safe-zone erosion: padding
 belongs to each word; erosion belongs to the silhouette.
 
-Rectangles simplify collision checks and make the geometry independently
-verifiable. They also reserve space around and between letters. A gap in an
-`o`, or space above a short glyph, is not available to another word. This is a
-tradeoff between reliable, understandable geometry and tighter packing.
+Rectangles simplify fit checks and make the geometry independently verifiable.
+For words at 24 px or smaller, that rectangle is also reserved. For larger
+words, the rendered glyph pixels are rasterized and padding expands the shape.
+Only those pixels are removed from free space. Space around and between large
+letters can then hold later words, while small words keep the rectangular path.
 
 ### Step 8: Find every legal center
 
-The **free-space mask** starts as the safe zone. Each reservation removes a
-rectangle from it. For each orientation, we ask where the whole footprint fits
+The **free-space mask** starts as the safe zone. Each reservation removes its
+pixels from it. For each orientation, we ask where the whole fit rectangle fits
 inside the remaining allowed pixels.
 
 We answer with erosion again, this time using a kernel the size of the word's
-footprint. The output is a map of **legal centers**. Its nonzero pixels are all
+fit rectangle. The output is a map of **legal centers**. Its nonzero pixels are all
 integer positions whose rectangles fit.
 
 Consider this simple free space and a 3 × 3 footprint:
@@ -457,18 +461,19 @@ It owns `width` columns starting at `left` and `height` rows starting at `top`.
 The erosion anchor and reservation use the same convention. Matching those two
 operations prevents one-pixel disagreements about what a center represents.
 
-**“Exact fit” refers to these measured, padded rectangles on the integer grid.**
-It does not mean exact glyph outlines, perfect image segmentation, or a globally
-optimal arrangement. Existing tests compare the center maps against checking
-every rectangle pixel directly on small irregular shapes.
+**“Exact fit” refers to the measured, padded rectangles on the integer grid.**
+The glyph reservation for larger words changes subsequent free space, but not
+the placement search. It does not mean perfect image segmentation or a globally
+optimal arrangement. Tests compare the center maps against checking every
+rectangle pixel directly on small irregular shapes.
 
 Code: [free-space geometry](../internal/layout/free_space.go) and
 [exhaustive comparison tests](../internal/layout/free_space_test.go).
 
 ### Step 9: Choose the largest fitting whole-pixel size
 
-Placement first tries the desired size, capped by the previous successful
-word's actual size. Minimum sizes round upward; desired sizes round downward.
+Placement first tries each word's frequency-derived desired size. Minimum sizes
+round upward; desired sizes round downward.
 For example, a minimum of 6.2 means at least 7 px, and a target of 29.8 starts
 at 29 px.
 
@@ -492,10 +497,8 @@ This relies on the footprint model becoming no larger as the font size shrinks.
 Words are remeasured at each trial size. Trial fit checks do not reserve space;
 only the final accepted placement does.
 
-The cap from the previous success keeps actual font sizes non-increasing. If
-an important word shrinks to 18 px, a later word cannot grow back to 30 px.
-Frequency therefore influences the result, but shape constraints can flatten
-its intended size differences.
+A word that shrinks to fit does not limit the starting size of the next word.
+Frequency sets the desired sizes; available space can reduce each one.
 
 Code: [placement and size search](../internal/effects/wordcloud/placement.go).
 
@@ -529,8 +532,9 @@ region with only vertical positions can therefore win over another region with
 horizontal positions.
 
 A word may cross region boundaries. Regions rank its center; they are not walls
-around its rectangle. Reservation credits the pixels actually occupied in each
-region it crosses. Geometry still checks the full rectangle against free space.
+around its rectangle. Region scoring credits the measured rectangle in each
+region it crosses. The free-space mask uses
+the glyph shape for larger words; fit checks still require the full rectangle.
 
 This policy draws on ShapeWordle's use of a distance field and multiple shape
 parts. ShapeWordle develops shape-aware spiral trajectories; this implementation
@@ -539,7 +543,7 @@ policy. It is an adaptation of those guiding ideas, rather than a reproduction
 of the paper's full algorithm.
 See [Wang and colleagues' ShapeWordle publication](https://www.microsoft.com/en-us/research/publication/shapewordle-tailoring-wordles-using-shape-aware-archimedean-spirals/).
 
-Once chosen, the footprint is removed from free space, region usage is updated,
+Once chosen, the reservation is removed from free space, region usage is updated,
 and the occupancy diagnostic is marked. Earlier words are not rearranged.
 This makes the layout **greedy**: it commits to one good local choice at a time.
 A different arrangement might fit more words overall; exhaustive center checks
@@ -554,18 +558,16 @@ The renderer starts with an opaque black canvas when the mask selected bright
 foreground, and an opaque white canvas otherwise. Unoccupied space therefore
 matches the background's brightness group.
 
-Each accepted word gets **one color from the original image**. We average the
-red, green, and blue channels under its measured rectangle, excluding placement
-padding. For a vertical word, we swap the rectangle's width and height before
-sampling. For example, a word lying over uniformly orange pixels stays orange;
-a word spanning equal areas of red and yellow gets their average, an orange
-shade. This keeps whole words readable while preserving broad color changes.
-
-Alpha weights each pixel's contribution: fully transparent pixels contribute
-nothing, and a half-transparent pixel contributes half as much as an opaque one.
-Go's `Color.RGBA()` already returns alpha-premultiplied channel values, so we
-sum those channels and divide by the summed alpha to recover the visible mean.
-See [Go's Color contract](https://pkg.go.dev/image/color#Color).
+Each accepted word gets **one color from the original image**. The renderer
+groups the source colors under its measured rectangle and selects an actual
+pixel color near the center of the largest color group. Transparent pixels
+contribute nothing; partially transparent pixels contribute according to their
+alpha. For a vertical word, the rectangle's width and height swap before
+sampling. A word spanning red and yellow therefore stays a source color
+instead of becoming an artificial orange blend. The sampled color is then
+moved farther from the canvas color for readability. Dark colors get brighter
+against black, and light colors get darker against white. A color identical to
+the canvas has no direction to move without inventing a new color.
 
 Finally, the renderer loads the font at the accepted size, moves the drawing
 origin to the word's center, rotates it, and draws the colored text with a
@@ -579,7 +581,8 @@ go run ./cmd/mosaic \
   -effect wordcloud \
   -in testdata/images/darth_vader_og.jpg \
   -text testdata/text/sample_text_message.txt \
-  -font "fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+  -font fonts/NotoSans-Bold.ttf \
+  -uppercase \
   -out vader-colored.png
 ```
 
@@ -760,7 +763,7 @@ what you actually see.
 
 ### Settings you can change in Go
 
-The CLI currently exposes only `-effect`, `-in`, `-text`, `-font`, and `-out`.
+The CLI exposes `-effect`, `-in`, `-text`, `-font`, `-out`, and `-uppercase`.
 The controls below are Go configuration fields, not additional command-line
 flags. Start with `NewConfig` so defaults are populated, then use options or
 assign fields before calling `Generate`.
@@ -792,7 +795,8 @@ func main() {
 	cfg := wordcloud.NewConfig(
 		wordcloud.WithInputPath("testdata/images/gen-img-couple.png"),
 		wordcloud.WithTextPath("testdata/text/sample_text_message.txt"),
-		wordcloud.WithFontPath("fonts/NotoSansMono-VariableFont_wdth,wght.ttf"),
+		wordcloud.WithFontPath("fonts/NotoSans-Bold.ttf"),
+		wordcloud.WithUppercase(true),
 		wordcloud.WithOutputPath("cloud.png"),
 		wordcloud.WithMinFontSize(10),
 		wordcloud.WithDebug(true),
@@ -868,7 +872,7 @@ With `Debug` enabled and output `cloud.png`, the program also writes:
 | `cloud_02-distance.png` | Brighter values indicate deeper interior locations; values are normalized for display. |
 | `cloud_03-regions.png` | Different gray labels show different regions. Their brightness does not represent importance. |
 | `cloud_04-safe-zone.png` | White is the shape remaining after the placement edge erosion. |
-| `cloud_05-occupancy.png` | White shows reserved rectangles, including padding and empty spaces around glyphs. |
+| `cloud_05-occupancy.png` | White shows the measured rectangles used for placement diagnostics. The free-space map reserves only glyph pixels for larger words. |
 | `cloud_06-wordcloud.png` | A diagnostic copy of the rendered cloud. |
 
 There is no per-word legal-center debug image in the current writer. The
@@ -876,8 +880,9 @@ legal-center maps are computed internally and released after use.
 
 If the cloud looks sparse, first inspect the selected shape and safe zone, then
 compare occupancy with the final letters. Space may exist visually between
-letters but already belong to a rectangle. Large minimum size, generous padding,
-narrow regions, and greedy earlier placements can each reduce the final count.
+letters but already belong to a small word's rectangle. Large minimum size,
+generous padding, narrow regions, and greedy earlier placements can each reduce
+the final count.
 
 If a mosaic loses a small feature, compare its size with the cell spacing. If it
 looks blank, check the viewing background and the source's transparency. If it
@@ -906,8 +911,8 @@ where each stage turns one useful representation into the next.
 For the cloud, read `Place` as a short workflow: try the desired size, find a
 smaller fitting word if necessary, and place it. Follow `largestFittingFontSize`
 for the search, `choosePlacementCenter` for the choice, and `reserveFootprint`
-for the state update. Geometry answers “can this rectangle fit?” Region policy
-answers “which valid position should we prefer?” Keeping these questions
+or `reserveGlyph` for the state update. Geometry answers “can this rectangle
+fit?” Region policy answers “which valid position should we prefer?” Keeping these questions
 separate makes both reasoning and verification easier.
 
 An OpenCV **Mat** is a matrix object holding image data, with native resources
@@ -922,12 +927,6 @@ and padding affect fit; placement finds the largest fitting size; region
 accounting follows actual reserved pixels; and mosaics handle whitespace,
 transparency, dimensions, and output files. These are checks of particular
 mechanisms, not a guarantee that every input yields an attractive picture.
-
-For past visual and timing comparisons, see the
-[word-cloud baseline](wordcloud-baseline.md). Its original measurements include
-an older spiral-search implementation and later replacements; read the stage
-labels before comparing results. Single-run times are not universal speed
-promises.
 
 ### Explain it back to yourself
 
@@ -947,10 +946,10 @@ words need differently shaped rectangles and can fit remaining gaps. Mosaic
 characters come from the text in order; sampled pixels set their color. The
 viewing background shows through the transparent gaps.
 
-A useful explanation to give someone else is: “The cloud counts words and packs
-padded word rectangles into a selected shape, coloring them from the image.
-The mosaic repeats characters
-on a grid and colors each one using the image beneath its center.” You can now
+A useful explanation to give someone else is: “The cloud counts words and fits
+padded word rectangles into a selected shape, reserving glyph pixels for large
+words and coloring the text from the image. The mosaic repeats characters on a
+grid and colors each one using the image beneath its center.” You can now
 expand either sentence into the steps and tradeoffs behind it.
 
 ## 7. References and attribution

@@ -2,6 +2,7 @@ package textutil
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -113,12 +114,16 @@ func MeasureWords(h WordCounts, cfg WordMeasurementConfig) ([]Word, error) {
 	equalFrequency := countRange.Min == countRange.Max
 	for i, w := range sortedWords {
 		size := cfg.MaxFontSize
-		if !equalFrequency {
-			size = mathutil.ScaleLog(
+		if !equalFrequency && cfg.MaxFontSize > cfg.MinFontSize {
+			scaled := mathutil.ScaleLog(
 				float64(w.Count),
 				countRange,
 				fontSizeRange,
 			)
+			// The square root preserves the endpoints while increasing the
+			// target size for intermediate frequencies.
+			ratio := (scaled - cfg.MinFontSize) / (cfg.MaxFontSize - cfg.MinFontSize)
+			size = cfg.MinFontSize + math.Sqrt(ratio)*(cfg.MaxFontSize-cfg.MinFontSize)
 		}
 		width, height, err := measureWord(dc, w.Word, cfg.FontPath, size)
 		if err != nil {

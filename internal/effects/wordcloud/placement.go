@@ -27,6 +27,7 @@ type PlacementContext struct {
 	safeZone    *gocv.Mat
 	occupancy   *gocv.Mat
 	regions     *regionPolicy
+	fontPath    string
 	wordPadding int
 	angles      []int
 }
@@ -45,9 +46,9 @@ func (ctx *PlacementContext) Close() {
 
 // Place selects the largest fitting whole-pixel font size at or above the
 // minimum. A failed placement means no footprint fits at the minimum size.
-func (ctx *PlacementContext) Place(word textutil.Word, maxFontSize, minFontSize float64) (PlacedWord, error) {
+func (ctx *PlacementContext) Place(word textutil.Word, minFontSize float64) (PlacedWord, error) {
 	minimum := int(math.Ceil(minFontSize))
-	desired := int(math.Floor(math.Min(word.FontSize, maxFontSize)))
+	desired := int(math.Floor(word.FontSize))
 	if minimum <= 0 || desired < minimum {
 		return PlacedWord{}, errors.New("invalid font-size range")
 	}
@@ -143,8 +144,19 @@ func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, boo
 	if err != nil || !found {
 		return PlacedWord{}, false, err
 	}
-	if err := ctx.reserveFootprint(ctx.footprint(word, angle), center); err != nil {
-		return PlacedWord{}, false, err
+	if word.FontSize > 24 {
+		glyph, err := rasterizeGlyph(word, ctx.fontPath, angle, ctx.wordPadding)
+		if err != nil {
+			return PlacedWord{}, false, err
+		}
+		defer glyph.Close()
+		if err := ctx.reserveGlyph(glyph, ctx.footprint(word, angle), center); err != nil {
+			return PlacedWord{}, false, err
+		}
+	} else {
+		if err := ctx.reserveFootprint(ctx.footprint(word, angle), center); err != nil {
+			return PlacedWord{}, false, err
+		}
 	}
 	return PlacedWord{Word: word, X: float64(center.X), Y: float64(center.Y), Angle: angle}, true, nil
 }
@@ -157,8 +169,7 @@ func (ctx *PlacementContext) choosePlacementCenter(word textutil.Word) (image.Po
 		}
 	}()
 	for _, angle := range ctx.angles {
-		size := ctx.footprint(word, angle)
-		centers, err := ctx.space.ValidCenters(size)
+		centers, err := ctx.space.ValidCenters(ctx.footprint(word, angle))
 		if err != nil {
 			return image.Point{}, 0, false, err
 		}
@@ -167,17 +178,29 @@ func (ctx *PlacementContext) choosePlacementCenter(word textutil.Word) (image.Po
 	return ctx.regions.choose(options)
 }
 
+func (ctx *PlacementContext) reserveGlyph(glyph glyphFootprint, size, center image.Point) error {
+	if err := ctx.space.ReserveMask(glyph.mask, center.Add(glyph.offset)); err != nil {
+		return err
+	}
+	ctx.markFootprint(size, center)
+	return nil
+}
+
 // reserveFootprint keeps free space, region usage, and diagnostics in sync.
 func (ctx *PlacementContext) reserveFootprint(size, center image.Point) error {
 	if !ctx.space.Reserve(size, center) {
 		return errors.New("selected center could not be reserved")
 	}
+	ctx.markFootprint(size, center)
+	return nil
+}
+
+func (ctx *PlacementContext) markFootprint(size, center image.Point) {
 	rect := layout.RectAt(center, size)
 	ctx.regions.reserve(rect)
 	occupied := ctx.occupancy.Region(rect)
 	occupied.SetTo(gocv.NewScalar(255, 0, 0, 0))
 	occupied.Close()
-	return nil
 }
 
 func (ctx *PlacementContext) footprint(word textutil.Word, angle int) image.Point {
@@ -201,6 +224,7 @@ func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, e
 	ctx := &PlacementContext{
 		safeZone:    safeZone,
 		occupancy:   occupancy,
+		fontPath:    cfg.FontPath,
 		wordPadding: cfg.WordPadding,
 		angles:      append([]int(nil), cfg.Angles...),
 	}

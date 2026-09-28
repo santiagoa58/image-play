@@ -1,6 +1,7 @@
 package textutil
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,11 +42,13 @@ func TestMeasureWordsScalesSelectedFrequencies(t *testing.T) {
 	fontRange := mathutil.Range{Min: minFontSize, Max: maxFontSize}
 
 	for _, word := range words {
-		wantSize := mathutil.ScaleLog(
+		scaled := mathutil.ScaleLog(
 			float64(word.Weight),
 			countRange,
 			fontRange,
 		)
+		ratio := (scaled - minFontSize) / (maxFontSize - minFontSize)
+		wantSize := minFontSize + math.Sqrt(ratio)*(maxFontSize-minFontSize)
 		if word.FontSize != wantSize {
 			t.Errorf(
 				"word %q font size = %v, want %v",

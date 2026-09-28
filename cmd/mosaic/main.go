@@ -28,6 +28,7 @@ type options struct {
 	outputPath string
 	textPath   string
 	fontPath   string
+	uppercase  bool
 }
 
 func main() {
@@ -39,6 +40,7 @@ func main() {
 
 func run() error {
 	var (
+		uppercase  = flag.Bool("uppercase", false, "Display wordcloud text in uppercase")
 		effectName = flag.String(
 			"effect",
 			"",
@@ -85,6 +87,7 @@ func run() error {
 		outputPath: *outputPath,
 		textPath:   *textPath,
 		fontPath:   *fontPath,
+		uppercase:  *uppercase,
 	}
 	if err := validateRequiredFlags(opts); err != nil {
 		flag.Usage()
@@ -126,6 +129,7 @@ func runEffect(selected effect, opts options) error {
 			wordcloud.WithOutputPath(opts.outputPath),
 			wordcloud.WithTextPath(opts.textPath),
 			wordcloud.WithFontPath(opts.fontPath),
+			wordcloud.WithUppercase(opts.uppercase),
 		)
 		if err := wordcloud.Generate(cfg); err != nil {
 			return fmt.Errorf("generate word cloud: %w", err)

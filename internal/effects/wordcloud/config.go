@@ -12,6 +12,8 @@ import (
 type Config struct {
 	// InputPath supplies the placement silhouette, word colors, and background clue.
 	InputPath string
+	// Uppercase converts display text before font measurement and placement.
+	Uppercase bool
 	// OutputPath is the target PNG. When empty, Generate derives one from InputPath.
 	OutputPath string
 	// TextPath is the UTF-8 text source whose word frequencies drive the cloud.
@@ -122,3 +124,6 @@ func WithSafeZoneErodeSize(size int) Option {
 func WithDebug(debug bool) Option {
 	return func(cfg *Config) { cfg.Debug = debug }
 }
+
+// WithUppercase selects uppercase display text without changing word frequencies.
+func WithUppercase(enabled bool) Option { return func(cfg *Config) { cfg.Uppercase = enabled } }
