@@ -173,7 +173,7 @@ flowchart TD
     shape --> words --> place --> draw
 ```
 
-Stage 3 repeats for each candidate word. Reserving a rectangle leaves less free
+Stage 3 repeats for each candidate word. Reserving its footprint leaves less free
 space for the next word. If a word cannot fit even at the minimum size, skip it
 and try the next candidate. After all candidates have been considered, stage 4
 draws the accepted layout.
@@ -394,11 +394,11 @@ chance before smaller words fragment the available space.
 Code: [logarithmic scaling](../internal/mathutil/scale.go) and
 [word sizing and measurement](../internal/textutil/words.go).
 
-### Step 7: Give each word a padded rectangular footprint
+### Step 7: Measure a padded rectangle for fit
 
-A **footprint** is the rectangle reserved for a word, including padding. If a
+A **fit rectangle** includes a word's measured width, height, and padding. If a
 word measures 20 pixels wide and 10 high, with 1 pixel of padding on each side,
-its horizontal footprint is 22 × 12. At 90 degrees it becomes 12 × 22.
+its horizontal fit rectangle is 22 × 12. At 90 degrees it becomes 12 × 22.
 
 ```text
 footprintWidth  = ceil(measuredWidth  + 2 × padding)
@@ -412,19 +412,23 @@ which makes complete collision checks straightforward.
 Padding keeps words apart. It is different from safe-zone erosion: padding
 belongs to each word; erosion belongs to the silhouette.
 
-Rectangles simplify collision checks and make the geometry independently
-verifiable. They also reserve space around and between letters. A gap in an
-`o`, or space above a short glyph, is not available to another word. This is a
-tradeoff between reliable, understandable geometry and tighter packing.
+Rectangles simplify fit checks and make the geometry independently verifiable.
+For words at 24 px or smaller, that rectangle is also reserved. For larger
+words, the renderer's glyph pixels are rasterized once after choosing a center,
+enclosed letter holes are filled, and padding expands the shape. Only those
+pixels are removed from free space. Space around and between large letters can
+then hold later words, while small words keep the faster rectangular path. If
+glyph pixels overhang the measured rectangle into unavailable space, the
+reservation falls back to the original rectangle.
 
 ### Step 8: Find every legal center
 
-The **free-space mask** starts as the safe zone. Each reservation removes a
-rectangle from it. For each orientation, we ask where the whole footprint fits
+The **free-space mask** starts as the safe zone. Each reservation removes its
+pixels from it. For each orientation, we ask where the whole fit rectangle fits
 inside the remaining allowed pixels.
 
 We answer with erosion again, this time using a kernel the size of the word's
-footprint. The output is a map of **legal centers**. Its nonzero pixels are all
+fit rectangle. The output is a map of **legal centers**. Its nonzero pixels are all
 integer positions whose rectangles fit.
 
 Consider this simple free space and a 3 × 3 footprint:
@@ -461,8 +465,9 @@ The erosion anchor and reservation use the same convention. Matching those two
 operations prevents one-pixel disagreements about what a center represents.
 
 **“Exact fit” refers to these measured, padded rectangles on the integer grid.**
-It does not mean exact glyph outlines, perfect image segmentation, or a globally
-optimal arrangement. Existing tests compare the center maps against checking
+The glyph reservation for larger words changes subsequent free space, but not
+how the current word is checked for fit. It does not mean perfect image
+segmentation or a globally optimal arrangement. Tests compare the center maps against checking
 every rectangle pixel directly on small irregular shapes.
 
 Code: [free-space geometry](../internal/layout/free_space.go) and
@@ -542,7 +547,7 @@ policy. It is an adaptation of those guiding ideas, rather than a reproduction
 of the paper's full algorithm.
 See [Wang and colleagues' ShapeWordle publication](https://www.microsoft.com/en-us/research/publication/shapewordle-tailoring-wordles-using-shape-aware-archimedean-spirals/).
 
-Once chosen, the footprint is removed from free space, region usage is updated,
+Once chosen, the reservation is removed from free space, region usage is updated,
 and the occupancy diagnostic is marked. Earlier words are not rearranged.
 This makes the layout **greedy**: it commits to one good local choice at a time.
 A different arrangement might fit more words overall; exhaustive center checks
@@ -871,7 +876,7 @@ With `Debug` enabled and output `cloud.png`, the program also writes:
 | `cloud_02-distance.png` | Brighter values indicate deeper interior locations; values are normalized for display. |
 | `cloud_03-regions.png` | Different gray labels show different regions. Their brightness does not represent importance. |
 | `cloud_04-safe-zone.png` | White is the shape remaining after the placement edge erosion. |
-| `cloud_05-occupancy.png` | White shows reserved rectangles, including padding and empty spaces around glyphs. |
+| `cloud_05-occupancy.png` | White shows the reserved rectangles for small words and padded glyph shapes for larger words. |
 | `cloud_06-wordcloud.png` | A diagnostic copy of the rendered cloud. |
 
 There is no per-word legal-center debug image in the current writer. The
@@ -879,8 +884,9 @@ legal-center maps are computed internally and released after use.
 
 If the cloud looks sparse, first inspect the selected shape and safe zone, then
 compare occupancy with the final letters. Space may exist visually between
-letters but already belong to a rectangle. Large minimum size, generous padding,
-narrow regions, and greedy earlier placements can each reduce the final count.
+letters but already belong to a small word's rectangle. Large minimum size,
+generous padding, narrow regions, and greedy earlier placements can each reduce
+the final count.
 
 If a mosaic loses a small feature, compare its size with the cell spacing. If it
 looks blank, check the viewing background and the source's transparency. If it
@@ -909,8 +915,8 @@ where each stage turns one useful representation into the next.
 For the cloud, read `Place` as a short workflow: try the desired size, find a
 smaller fitting word if necessary, and place it. Follow `largestFittingFontSize`
 for the search, `choosePlacementCenter` for the choice, and `reserveFootprint`
-for the state update. Geometry answers “can this rectangle fit?” Region policy
-answers “which valid position should we prefer?” Keeping these questions
+or `reserveGlyph` for the state update. Geometry answers “can this rectangle
+fit?” Region policy answers “which valid position should we prefer?” Keeping these questions
 separate makes both reasoning and verification easier.
 
 An OpenCV **Mat** is a matrix object holding image data, with native resources
@@ -944,10 +950,10 @@ words need differently shaped rectangles and can fit remaining gaps. Mosaic
 characters come from the text in order; sampled pixels set their color. The
 viewing background shows through the transparent gaps.
 
-A useful explanation to give someone else is: “The cloud counts words and packs
-padded word rectangles into a selected shape, coloring them from the image.
-The mosaic repeats characters
-on a grid and colors each one using the image beneath its center.” You can now
+A useful explanation to give someone else is: “The cloud counts words and fits
+padded word rectangles into a selected shape, reserving glyph pixels for large
+words and coloring the text from the image. The mosaic repeats characters on a
+grid and colors each one using the image beneath its center.” You can now
 expand either sentence into the steps and tradeoffs behind it.
 
 ## 7. References and attribution

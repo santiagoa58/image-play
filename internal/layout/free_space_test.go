@@ -89,6 +89,32 @@ func TestReserveChangesOnlyOwnedSpace(t *testing.T) {
 	}
 }
 
+func TestReserveMaskKeepsGapsAvailableToRectangles(t *testing.T) {
+	allowed := maskFromRows([]string{
+		"########", "########", "########", "########", "########", "########",
+	})
+	defer allowed.Close()
+	space, err := NewFreeSpace(allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer space.Close()
+	glyph := maskFromRows([]string{"#...#", "#...#", "#####", "#...#", "#...#"})
+	defer glyph.Close()
+	if ok, err := space.ReserveMask(glyph, image.Pt(1, 0)); err != nil || !ok {
+		t.Fatalf("reserve glyph: ok=%v err=%v", ok, err)
+	}
+	if !space.Reserve(image.Pt(3, 2), image.Pt(3, 1)) {
+		t.Fatal("small rectangle should fit between glyph strokes")
+	}
+	if space.Reserve(image.Pt(2, 2), image.Pt(1, 1)) {
+		t.Fatal("rectangle should not overlap glyph strokes")
+	}
+	if ok, err := space.ReserveMask(glyph, image.Pt(5, 2)); err != nil || ok {
+		t.Fatalf("out-of-bounds glyph: ok=%v err=%v", ok, err)
+	}
+}
+
 func maskFromRows(rows []string) gocv.Mat {
 	mask := gocv.NewMatWithSize(len(rows), len(rows[0]), gocv.MatTypeCV8UC1)
 	for y, row := range rows {

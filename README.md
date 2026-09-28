@@ -70,7 +70,7 @@ go run ./cmd/mosaic \
 ```
 
 Current defaults include 0/90-degree placement, logarithmic frequency scaling,
-rectangular word footprints, an automatic maximum font size, and up to 500
+rectangular fit checks, an automatic maximum font size, and up to 500
 candidate words. The default minimum size is 6 px for every image. The
 candidate limit is a source pool: words that cannot fit at the minimum size in
 either orientation are skipped.
@@ -114,12 +114,15 @@ The main package boundaries are:
 ## Placement geometry
 
 The low-level geometry is isolated in `internal/layout`. `FreeSpace` keeps a
-binary map of the silhouette minus the rectangles already placed. OpenCV's
+binary map of the remaining silhouette. OpenCV's
 rectangular erosion returns every integer center at which a measured, padded
-rectangle fits wholly within that map. The same rectangle is removed when the
-word is placed. Tests compare the result pixel for pixel against exhaustive
-rectangle checks on small irregular shapes. The exactness claim applies to
-these padded rectangles, not individual glyph outlines.
+rectangle fits wholly within that map. Words at 24 px or smaller reserve that
+rectangle. Larger words reserve their padded, rendered glyph pixels, leaving
+space around the letters for later words. If glyph pixels extend beyond the
+measured rectangle into unavailable space, placement retains the original
+rectangular reservation. Tests compare legal centers pixel for pixel against
+exhaustive rectangle checks on small irregular shapes. The exactness claim
+applies to the fit checks, not the rendered glyph outlines.
 
 The separate region policy draws on [ShapeWordle's](https://www.microsoft.com/en-us/research/publication/shapewordle-tailoring-wordles-using-shape-aware-archimedean-spirals/)
 use of distance and shape parts. Deep, separated points seed regions, and a
@@ -145,8 +148,8 @@ larger, harder-to-fit words are attempted before smaller gap-filling words.
 Fit checks consider both configured orientations across the complete remaining
 free space. At the chosen size, placement favors a less-filled shape region,
 then the configured orientation order (horizontal first by default), then the
-deepest legal center in that region. Each reserved rectangle contributes its
-actual occupied area to every region it crosses. A skipped word has no legal
+deepest legal center in that region. Each reservation contributes its actual
+occupied pixels to every region it crosses. A skipped word has no legal
 position in either orientation at the permitted minimum size.
 
 ## Text mosaic

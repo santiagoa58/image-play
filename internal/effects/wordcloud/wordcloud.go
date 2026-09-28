@@ -19,7 +19,8 @@ import (
 //   - imageutil derives the silhouette and distance transform;
 //   - textutil counts, sizes, and measures candidate words;
 //   - this package chooses sizes, shape regions, orientations, and positions;
-//   - layout.FreeSpace supplies exact rectangular fit and reservation;
+//   - layout.FreeSpace supplies exact rectangular fit and reserves either
+//     rectangular or rendered-glyph footprints;
 //   - the renderer draws the accepted layout.
 //
 // A candidate that cannot fit at the minimum size is skipped; WordLimit is a

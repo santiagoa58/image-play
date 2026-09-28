@@ -27,6 +27,7 @@ type PlacementContext struct {
 	safeZone    *gocv.Mat
 	occupancy   *gocv.Mat
 	regions     *regionPolicy
+	fontPath    string
 	wordPadding int
 	angles      []int
 }
@@ -143,8 +144,19 @@ func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, boo
 	if err != nil || !found {
 		return PlacedWord{}, false, err
 	}
-	if err := ctx.reserveFootprint(ctx.footprint(word, angle), center); err != nil {
-		return PlacedWord{}, false, err
+	if word.FontSize > 24 {
+		glyph, err := rasterizeGlyph(word, ctx.fontPath, angle, ctx.wordPadding)
+		if err != nil {
+			return PlacedWord{}, false, err
+		}
+		defer glyph.Close()
+		if err := ctx.reserveGlyph(glyph, ctx.footprint(word, angle), center); err != nil {
+			return PlacedWord{}, false, err
+		}
+	} else {
+		if err := ctx.reserveFootprint(ctx.footprint(word, angle), center); err != nil {
+			return PlacedWord{}, false, err
+		}
 	}
 	return PlacedWord{Word: word, X: float64(center.X), Y: float64(center.Y), Angle: angle}, true, nil
 }
@@ -157,14 +169,39 @@ func (ctx *PlacementContext) choosePlacementCenter(word textutil.Word) (image.Po
 		}
 	}()
 	for _, angle := range ctx.angles {
-		size := ctx.footprint(word, angle)
-		centers, err := ctx.space.ValidCenters(size)
+		centers, err := ctx.space.ValidCenters(ctx.footprint(word, angle))
 		if err != nil {
 			return image.Point{}, 0, false, err
 		}
 		options = append(options, orientedCenters{angle: angle, centers: centers})
 	}
 	return ctx.regions.choose(options)
+}
+
+func (ctx *PlacementContext) reserveGlyph(glyph glyphFootprint, rectangle, center image.Point) error {
+	origin := center.Add(glyph.offset)
+	reserved, err := ctx.space.ReserveMask(glyph.mask, origin)
+	if err != nil {
+		return err
+	}
+	if !reserved {
+		// Some font pixels can extend just beyond MeasureString's rectangle.
+		// Keep the original reservation when that overhang touches unavailable
+		// space, rather than changing the chosen word size or position.
+		return ctx.reserveFootprint(rectangle, center)
+	}
+	if err := ctx.regions.reserveMask(glyph.mask, origin); err != nil {
+		return err
+	}
+	rect := image.Rectangle{Min: origin, Max: origin.Add(image.Pt(glyph.mask.Cols(), glyph.mask.Rows()))}
+	occupied := ctx.occupancy.Region(rect)
+	defer occupied.Close()
+	updated := gocv.NewMat()
+	defer updated.Close()
+	if err := gocv.BitwiseOr(occupied, glyph.mask, &updated); err != nil {
+		return err
+	}
+	return updated.CopyTo(&occupied)
 }
 
 // reserveFootprint keeps free space, region usage, and diagnostics in sync.
@@ -201,6 +238,7 @@ func NewPlacementContext(mask *imageutil.Mask, cfg Config) (*PlacementContext, e
 	ctx := &PlacementContext{
 		safeZone:    safeZone,
 		occupancy:   occupancy,
+		fontPath:    cfg.FontPath,
 		wordPadding: cfg.WordPadding,
 		angles:      append([]int(nil), cfg.Angles...),
 	}
