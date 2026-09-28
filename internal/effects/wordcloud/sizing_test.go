@@ -27,19 +27,36 @@ func TestResolveMaxFontSizeUsesLayout(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolveMaxFontSize() error = %v", err)
 	}
-	if got < minimumFontSize(cfg) {
-		t.Fatalf("resolveMaxFontSize() = %v, want >= minimum %v", got, minimumFontSize(cfg))
+	if got < minimumFontSize(cfg, mask.Width, mask.Height) {
+		t.Fatalf("resolveMaxFontSize() = %v, want >= minimum %v", got, minimumFontSize(cfg, mask.Width, mask.Height))
 	}
 	if got > float64(mask.Height) {
 		t.Fatalf("resolveMaxFontSize() = %v, want <= probe upper bound %d", got, mask.Height)
 	}
 }
 
-func TestMinimumFontSizeUsesFixedDefaultOrExplicitOverride(t *testing.T) {
-	if got := minimumFontSize(NewConfig()); got != 6 {
-		t.Errorf("default minimum = %v, want 6", got)
+func TestMinimumFontSizeUsesImageScaleOrExplicitOverride(t *testing.T) {
+	tests := []struct {
+		name   string
+		width  int
+		height int
+		want   float64
+	}{
+		{name: "eight pixel floor", width: 600, height: 400, want: 8},
+		{name: "one percent boundary", width: 1200, height: 800, want: 8},
+		{name: "rounds scaled minimum up", width: 1200, height: 801, want: 9},
+		{name: "uses shortest side", width: 1600, height: 900, want: 9},
+		{name: "scales larger images", width: 2048, height: 1024, want: 11},
 	}
-	if got := minimumFontSize(NewConfig(WithMinFontSize(9))); got != 9 {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := minimumFontSize(NewConfig(), tt.width, tt.height); got != tt.want {
+				t.Errorf("minimumFontSize() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+
+	if got := minimumFontSize(NewConfig(WithMinFontSize(9)), 2048, 2048); got != 9 {
 		t.Errorf("explicit minimum = %v, want 9", got)
 	}
 }

@@ -9,12 +9,14 @@ import (
 	"github.com/santiagoa58/image-play/internal/textutil"
 )
 
-// minimumFontSize uses a fixed 6px floor unless the caller sets an override.
-func minimumFontSize(cfg Config) float64 {
+// minimumFontSize uses the larger of 8px or 1% of the image's shortest side
+// unless the caller sets an override.
+func minimumFontSize(cfg Config, width, height int) float64 {
 	if cfg.MinFontSize > 0 {
 		return cfg.MinFontSize
 	}
-	return 6
+	shortestSide := min(width, height)
+	return math.Max(8, math.Ceil(0.01*float64(shortestSide)))
 }
 
 // resolveMaxFontSize returns the maximum font size used for frequency scaling.
@@ -32,7 +34,7 @@ func resolveMaxFontSize(
 	if mask == nil || mask.Height <= 0 {
 		return 0, errors.New("cannot determine maximum font size without a valid mask")
 	}
-	minSize := minimumFontSize(cfg)
+	minSize := minimumFontSize(cfg, mask.Width, mask.Height)
 
 	candidates := wordHeap.ToSortedSlice()
 	if len(candidates) == 0 {
