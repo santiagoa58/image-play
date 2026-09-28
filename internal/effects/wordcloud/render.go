@@ -33,7 +33,7 @@ func Render(
 			)
 		}
 
-		dc.SetColor(contrastingWordColor(sampleWordColor(source, p), canvasColor(darkBackground)))
+		dc.SetColor(contrastingWordColor(boostWordColorSaturation(sampleWordColor(source, p)), canvasColor(darkBackground)))
 		dc.Push()
 		dc.Translate(p.X, p.Y)
 		dc.Rotate(float64(p.Angle) * math.Pi / 180)
@@ -123,6 +123,24 @@ func sampleWordColor(source image.Image, word PlacedWord) color.NRGBA {
 	}
 	best.A = 255
 	return best
+}
+
+const wordColorSaturation = 1.3
+
+// boostWordColorSaturation makes sampled source colors more vivid while
+// preserving neutral grays.
+func boostWordColorSaturation(c color.NRGBA) color.NRGBA {
+	clamp := func(value float64) uint8 {
+		return uint8(math.Round(math.Max(0, math.Min(255, value))))
+	}
+	s := wordColorSaturation
+	r, g, b := float64(c.R), float64(c.G), float64(c.B)
+	return color.NRGBA{
+		R: clamp((0.213+0.787*s)*r + (0.715-0.715*s)*g + (0.072-0.072*s)*b),
+		G: clamp((0.213-0.213*s)*r + (0.715+0.285*s)*g + (0.072-0.072*s)*b),
+		B: clamp((0.213-0.213*s)*r + (0.715-0.715*s)*g + (0.072+0.928*s)*b),
+		A: c.A,
+	}
 }
 
 // contrastingWordColor adjusts a sampled color until it is legible on the canvas.
