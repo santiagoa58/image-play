@@ -11,17 +11,10 @@ import (
 	"github.com/santiagoa58/image-play/internal/textutil"
 )
 
-func opaqueGlyph(width, height int) *image.Alpha {
-	glyph := image.NewAlpha(image.Rect(0, 0, width, height))
-	for i := range glyph.Pix {
-		glyph.Pix[i] = 255
-	}
-	return glyph
-}
-
-func TestGlyphMeanFollowsPositionAndRotation(t *testing.T) {
+func TestSampleWordColorFollowsPositionAndRotation(t *testing.T) {
 	source := image.NewNRGBA(image.Rect(10, 20, 30, 40))
-	red, blue := color.NRGBA{R: 255, A: 255}, color.NRGBA{B: 255, A: 255}
+	red := color.NRGBA{R: 255, A: 255}
+	blue := color.NRGBA{B: 255, A: 255}
 	for y := 20; y < 40; y++ {
 		for x := 10; x < 30; x++ {
 			c := red
@@ -37,53 +30,64 @@ func TestGlyphMeanFollowsPositionAndRotation(t *testing.T) {
 		angle int
 		want  color.NRGBA
 	}{
-		{"left", 5, 0, red}, {"right", 15, 0, blue}, {"unrotated", 7, 0, red}, {"vertical", 7, 90, color.NRGBA{R: 223, B: 31, A: 255}},
+		{"left", 5, 0, red}, {"right", 15, 0, blue},
+		// The rotated footprint crosses both halves only after the dimensions swap.
+		{"unrotated", 7, 0, red},
+		{"vertical", 7, 90, red},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			word := PlacedWord{X: tc.x, Y: 10, Angle: tc.angle}
-			if got := sampleGlyphColor(source, word, opaqueGlyph(4, 8), color.NRGBA{A: 255}, "mean"); got != tc.want {
+			word := PlacedWord{Word: textutil.Word{Width: 4, Height: 8}, X: tc.x, Y: 10, Angle: tc.angle}
+			if got := sampleWordColor(source, word); got != tc.want {
 				t.Fatalf("color = %v, want %v", got, tc.want)
 			}
 		})
 	}
 }
 
-func TestGlyphSamplingIgnoresEmptyLetterSpaceAndHiddenRGB(t *testing.T) {
-	source := image.NewNRGBA(image.Rect(0, 0, 4, 1))
+func TestSampleWordColorIgnoresHiddenRGBAndWeightsAlpha(t *testing.T) {
+	source := image.NewNRGBA(image.Rect(0, 0, 3, 1))
 	source.SetNRGBA(0, 0, color.NRGBA{R: 255, A: 255})
 	source.SetNRGBA(1, 0, color.NRGBA{B: 255, A: 85})
 	source.SetNRGBA(2, 0, color.NRGBA{G: 255, A: 0})
-	source.SetNRGBA(3, 0, color.NRGBA{G: 255, A: 255})
-	glyph := opaqueGlyph(4, 1)
-	glyph.Pix[3] = 0
-	word := PlacedWord{X: 2, Y: 0.5}
-	want := color.NRGBA{R: 191, B: 63, A: 255}
-	if got := sampleGlyphColor(source, word, glyph, color.NRGBA{A: 255}, "mean"); got != want {
+	word := PlacedWord{Word: textutil.Word{Width: 3, Height: 1}, X: 1.5, Y: 0.5}
+	want := color.NRGBA{R: 255, A: 255}
+	if got := sampleWordColor(source, word); got != want {
 		t.Fatalf("color = %v, want %v", got, want)
 	}
-	if got := sampleGlyphColor(source, word, glyph, color.NRGBA{A: 255}, "representative"); got != (color.NRGBA{R: 255, A: 255}) {
-		t.Fatalf("representative = %v, want actual red", got)
-	}
-	// Clipping must not dilute the surviving red pixel with out-of-bounds black.
-	word.X = 0
-	if got := sampleGlyphColor(source, word, glyph, color.NRGBA{A: 255}, "mean"); got != (color.NRGBA{R: 255, A: 255}) {
+	// Clipping an out-of-bounds footprint must not dilute the surviving pixels.
+	word.X = -1
+	word.Word.Width = 4
+	if got := sampleWordColor(source, word); got != (color.NRGBA{R: 255, A: 255}) {
 		t.Fatalf("clipped color = %v", got)
 	}
 }
 
-func TestRepresentativeColorDoesNotInventMixedHue(t *testing.T) {
+func TestSampleWordColorKeepsDominantSourceHue(t *testing.T) {
 	source := image.NewNRGBA(image.Rect(0, 0, 3, 1))
-	red, yellow := color.NRGBA{R: 255, A: 255}, color.NRGBA{R: 255, G: 255, A: 255}
+	red := color.NRGBA{R: 255, A: 255}
+	yellow := color.NRGBA{R: 255, G: 255, A: 255}
 	source.SetNRGBA(0, 0, red)
 	source.SetNRGBA(1, 0, red)
 	source.SetNRGBA(2, 0, yellow)
-	word := PlacedWord{X: 1.5, Y: 0.5}
-	glyph := opaqueGlyph(3, 1)
-	if got := sampleGlyphColor(source, word, glyph, color.NRGBA{A: 255}, "representative"); got != red {
-		t.Fatalf("representative = %v, want %v", got, red)
+	word := PlacedWord{Word: textutil.Word{Width: 3, Height: 1}, X: 1.5, Y: 0.5}
+	if got := sampleWordColor(source, word); got != red {
+		t.Fatalf("color = %v, want actual dominant source color %v", got, red)
 	}
-	if got := sampleGlyphColor(source, word, glyph, color.NRGBA{A: 255}, "mean"); got != (color.NRGBA{R: 255, G: 85, A: 255}) {
-		t.Fatalf("mean = %v", got)
+}
+
+func TestContrastingWordColorMovesAwayFromEitherCanvas(t *testing.T) {
+	gray := color.NRGBA{R: 48, G: 48, B: 48, A: 255}
+	got := contrastingWordColor(gray, color.Black)
+	if got.R <= gray.R || got.R != got.G || got.G != got.B {
+		t.Fatalf("dark gray = %v, want a brighter neutral gray", got)
+	}
+	light := color.NRGBA{R: 230, G: 220, B: 210, A: 255}
+	got = contrastingWordColor(light, color.White)
+	if got.R >= light.R || got.G >= light.G || got.B >= light.B {
+		t.Fatalf("light color = %v, want darker color against white", got)
+	}
+	if got := contrastingWordColor(color.NRGBA{A: 255}, color.Black); got != (color.NRGBA{A: 255}) {
+		t.Fatalf("black against black = %v, want black", got)
 	}
 }
 
@@ -94,14 +98,10 @@ func TestRenderUsesSourceColorsAndBackground(t *testing.T) {
 			source.SetNRGBA(x, y, color.NRGBA{R: 255, A: 255})
 		}
 	}
-	measured, err := textutil.MeasureWord("RED", 1, wordcloudTestFontPath(t), 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	words := []PlacedWord{{Word: measured, X: 50, Y: 40}}
-	for _, background := range []color.NRGBA{{A: 255}, {R: 255, G: 255, B: 255, A: 255}} {
+	words := []PlacedWord{{Word: textutil.Word{Text: "RED", FontSize: 20, Width: 36, Height: 24}, X: 50, Y: 40}}
+	for _, dark := range []bool{false, true} {
 		output := filepath.Join(t.TempDir(), "cloud.png")
-		if err := Render(source, background, wordcloudTestFontPath(t), words, output, false, "representative"); err != nil {
+		if err := Render(source, dark, "../../../fonts/NotoSansMono-VariableFont_wdth,wght.ttf", words, output, false); err != nil {
 			t.Fatal(err)
 		}
 		file, err := os.Open(output)
@@ -116,8 +116,8 @@ func TestRenderUsesSourceColorsAndBackground(t *testing.T) {
 		if rendered.Bounds() != source.Bounds() {
 			t.Fatalf("bounds = %v", rendered.Bounds())
 		}
-		if got := color.NRGBAModel.Convert(rendered.At(0, 0)); got != background {
-			t.Fatalf("background = %v, want %v", got, background)
+		if got, want := color.RGBAModel.Convert(rendered.At(0, 0)), color.RGBAModel.Convert(canvasColor(dark)); got != want {
+			t.Fatalf("background = %v, want %v", got, want)
 		}
 		foundRed := false
 		for y := 0; y < 80; y++ {

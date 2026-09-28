@@ -43,12 +43,11 @@ func Generate(cfg Config) error {
 
 	// 2. Prepare mask (binary + distance)
 	logger.Info("preparing mask", "path", cfg.InputPath)
-	mask, err := imageutil.PrepareMaskWithSubject(cfg.InputPath, cfg.SubjectMaskPath, cfg.AlphaThreshold)
+	mask, err := imageutil.PrepareMask(cfg.InputPath, cfg.AlphaThreshold)
 	if err != nil {
 		return fmt.Errorf("prepare mask: %w", err)
 	}
 	defer mask.Close()
-	logger.Info("selected subject", "method", mask.SelectionMethod, "background", mask.Background)
 	minFontSize := minimumFontSize(cfg)
 
 	if err := writeMaskDebug(cfg.Debug, outputPath, mask); err != nil {
@@ -114,7 +113,13 @@ func Generate(cfg Config) error {
 	for i, w := range words {
 		percent := 100 * (i + 1) / len(words)
 		fmt.Printf("\rProgress: [%3d%%] %d/%d", percent, i+1, len(words))
-		p, err := placeCandidate(placeCtx, w, minFontSize)
+		prevFontSize := maxFontSize
+		if len(placed) > 0 {
+			last := placed[len(placed)-1]
+			prevFontSize = last.Word.FontSize
+		}
+
+		p, err := placeCtx.Place(w, prevFontSize, minFontSize)
 		if err != nil {
 			if errors.Is(err, errNoPlacement) {
 				skipped++
@@ -160,7 +165,7 @@ func Generate(cfg Config) error {
 	if len(placed) == 0 {
 		return errors.New("no words could be placed inside the image shape")
 	}
-	if err := Render(mask.Source, mask.Background, cfg.FontPath, placed, outputPath, cfg.Debug, cfg.ColorMode); err != nil {
+	if err := Render(mask.Source, mask.DarkBackground, cfg.FontPath, placed, outputPath, cfg.Debug); err != nil {
 		return err
 	}
 
@@ -170,12 +175,6 @@ func Generate(cfg Config) error {
 		"total_duration", time.Since(started),
 	)
 	return nil
-}
-
-// placeCandidate caps this word by its own frequency-derived target. A previous
-// word's awkward shape must not shrink unrelated candidates.
-func placeCandidate(ctx *PlacementContext, word textutil.Word, minimum float64) (PlacedWord, error) {
-	return ctx.Place(word, word.FontSize, minimum)
 }
 
 func displayWordCounts(counts textutil.WordCounts, uppercase bool) textutil.WordCounts {

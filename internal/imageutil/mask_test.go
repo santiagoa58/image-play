@@ -43,6 +43,73 @@ func TestPrepareMaskExcludesTransparentLogoCorners(t *testing.T) {
 	}
 }
 
+func TestBuildAlphaVisibilityMaskUsesStrictThreshold(t *testing.T) {
+	// Alpha values equal to the threshold remain invisible. ThresholdBinary
+	// makes only values greater than the threshold visible.
+	img := newTestMat(t, 1, 3, gocv.MatTypeCV8UC4, []byte{
+		0, 0, 0, 7,
+		0, 0, 0, 8,
+		0, 0, 0, 9,
+	})
+	defer img.Close()
+
+	visible, err := buildAlphaVisibilityMask(img, 8)
+	if err != nil {
+		t.Fatalf("buildAlphaVisibilityMask() error = %v", err)
+	}
+	defer visible.Close()
+
+	assertRowEquals(t, *visible, 0, []uint8{0, 0, 255})
+}
+
+func TestBuildAlphaVisibilityMaskRejectsImageWithoutAlpha(t *testing.T) {
+	img := gocv.NewMatWithSize(1, 1, gocv.MatTypeCV8UC3)
+	defer img.Close()
+
+	visible, err := buildAlphaVisibilityMask(img, 8)
+	if visible != nil {
+		visible.Close()
+		t.Fatal(
+			"buildAlphaVisibilityMask() returned a mask for a three-channel image",
+		)
+	}
+	if err == nil {
+		t.Fatal("buildAlphaVisibilityMask() error = nil, want an error")
+	}
+}
+
+func TestVisibleLuminanceSetsInvisiblePixelsToWhite(t *testing.T) {
+	gray := newTestMat(t, 1, 3, gocv.MatTypeCV8UC1, []byte{
+		10, 20, 30,
+	})
+	defer gray.Close()
+
+	visible := newTestMat(t, 1, 3, gocv.MatTypeCV8UC1, []byte{
+		0, 255, 0,
+	})
+	defer visible.Close()
+
+	got, err := visibleLuminance(gray, visible)
+	if err != nil {
+		t.Fatalf("visibleLuminance() error = %v", err)
+	}
+	defer got.Close()
+
+	assertRowEquals(t, *got, 0, []uint8{255, 20, 255})
+}
+
+func TestApplyBinaryThresholdSelectsDarkPixels(t *testing.T) {
+	gray := newTestMat(t, 1, 2, gocv.MatTypeCV8UC1, []byte{
+		0, 255,
+	})
+	defer gray.Close()
+
+	binary := applyBinaryThreshold(gray)
+	defer binary.Close()
+
+	assertRowEquals(t, *binary, 0, []uint8{255, 0})
+}
+
 func TestCleanMaskFillsSinglePixelHole(t *testing.T) {
 	const size = 9
 
@@ -105,7 +172,7 @@ func TestBuildBinaryMaskReappliesVisibilityAfterCleanup(t *testing.T) {
 	}
 }
 
-func TestBuildBinaryMaskRemovesLightBorderBackground(t *testing.T) {
+func TestBuildBinaryMaskWithoutAlphaUsesLuminance(t *testing.T) {
 	const (
 		rows = 15
 		cols = 30
@@ -172,11 +239,25 @@ func TestBuildBinaryMaskIgnoresHiddenRGB(t *testing.T) {
 	if got := mask.GetUCharAt(7, 6); got != 255 {
 		t.Errorf("visible dark region = %d, want 255", got)
 	}
-	if got := mask.GetUCharAt(7, 23); got != 255 {
-		t.Errorf("visible light region = %d, want 255", got)
+	if got := mask.GetUCharAt(7, 23); got != 0 {
+		t.Errorf("visible light region = %d, want 0", got)
 	}
 	if got := mask.GetUCharAt(7, 15); got != 0 {
 		t.Errorf("transparent region = %d, want 0", got)
+	}
+}
+
+func TestGrayscaleRejectsUnsupportedChannelCount(t *testing.T) {
+	img := gocv.NewMatWithSize(1, 1, gocv.MatTypeCV8UC2)
+	defer img.Close()
+
+	gray, err := grayscale(img)
+	if gray != nil {
+		gray.Close()
+		t.Fatal("grayscale() returned a matrix for an unsupported channel count")
+	}
+	if err == nil {
+		t.Fatal("grayscale() error = nil, want an error")
 	}
 }
 

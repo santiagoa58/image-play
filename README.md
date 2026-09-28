@@ -48,15 +48,16 @@ transparent background.
 ## Word cloud
 
 The word-cloud pipeline turns a source image into a placement silhouette, sizes
-words by frequency, then packs those words inside the silhouette. Subject
-geometry is separate from shading: cutouts use alpha, simple backgrounds use
-border-connected color removal, and busy photographs keep the whole scene.
-Use `-mask subject-mask.png` to select a subject explicitly in a complex scene.
+words by frequency, then packs those words inside the silhouette. Each word
+uses a representative source color beneath its rectangle. A dark image border selects
+bright foreground and a black canvas; other images use dark foreground on white.
+This preserves colored highlights and dark interior gaps in images such as
+`testdata/images/darth_vader_og.jpg`. Transparent borders keep dark-foreground
+selection. Border detection is a heuristic; it does not recognize objects.
 
-Each word uses a representative source color sampled beneath its actual letters.
-The background follows the source's simple background color, or a contrasting
-black/white canvas for cutouts and full scenes. `-color-mode mean` selects a
-letter-weighted average instead.
+The supplied `-font` path determines the typeface and weight. For a bold font,
+use `-font fonts/NotoSans-Bold.ttf`; `-uppercase` optionally changes displayed
+case without changing the word counts. See [font attribution](fonts/README.md).
 
 ```bash
 go run ./cmd/mosaic \
@@ -72,22 +73,6 @@ rectangular word footprints, an automatic maximum font size, and up to 500
 candidate words. The default minimum size is 6 px for every image. The
 candidate limit is a source pool: words that cannot fit at the minimum size in
 either orientation are skipped.
-
-For bold proportional text, use `-font fonts/NotoSans-Bold.ttf`; add
-`-uppercase` to capitalize words before measurement. See [font attribution and
-license](fonts/README.md). The original font commands continue to work.
-
-Generate every fixture with the same Darth Vader text and mono font:
-
-```bash
-scripts/test-wordcloud-images.sh testdata/out
-# Compare a stronger style in a separate directory:
-scripts/test-wordcloud-images.sh testdata/out/bold -uppercase -font fonts/NotoSans-Bold.ttf
-```
-
-The [quality comparison](docs/wordcloud-quality.md) records the results and
-limitations across all images. Add `-debug` to inspect subject geometry,
-source contrast, placement space, and the final layout.
 
 ### Pipeline
 
@@ -145,12 +130,13 @@ region's occupied fraction ranks legal positions; it never rules out a fit.
 Words are processed in frequency order. The default minimum is 6 px for every
 image; a positive `MinFontSize` overrides it. The default maximum is calibrated
 against the image by probing the most important words in a fresh layout. Frequency
-maps words logarithmically into this range. When a desired size does not fit,
+maps counts logarithmically, then spreads intermediate counts toward larger
+sizes within this range. When a desired size does not fit,
 placement binary-searches whole-pixel font sizes down to the minimum.
 
-Each word starts at its own frequency-derived target size. Shrinking one word
-does not shrink later candidates. A shorter, less frequent word may therefore
-render larger than a long word that had to shrink to fit.
+The maximum starting size for each new word is capped by the previous
+successfully placed word's actual size. This keeps rendered sizes
+non-increasing even when an important word had to shrink to fit.
 
 When words have equal frequency, their measured rectangle area breaks the tie:
 larger, harder-to-fit words are attempted before smaller gap-filling words.
@@ -197,10 +183,9 @@ directories.
 
 ## Debugging
 
-Add `-debug`, or set `Debug` in the word-cloud configuration to write intermediate images for:
+Set `Debug` in the word-cloud configuration to write intermediate images for:
 
-- subject geometry and source contrast,
-- the placement mask,
+- the binary mask,
 - the distance transform,
 - shape regions,
 - the eroded safe zone,

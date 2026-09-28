@@ -54,7 +54,7 @@ out helps you see the image; zooming in helps you see the text.
 | What comes from the image? | A silhouette, interior distances, and local word colors | A brightness and transparency sample for each grid position |
 | What comes from the text? | Distinct words and occurrence counts | Characters in their original order, with whitespace simplified |
 | What changes between pieces of text? | Font size, position, orientation, and color | Drawing color and opacity; the font size stays fixed within one mosaic |
-| What is the background? | Estimated background color, or a contrasting black/white canvas | Transparent between characters |
+| What is the background? | Opaque black or white, inferred from the image border | Transparent between characters |
 | What is preserved? | The selected shape and a visual ordering of words | An approximation of the image's light and dark structure |
 
 Both commands need an image, a text file, and a font. From the repository root,
@@ -147,17 +147,10 @@ At the same font size, `mountain` usually needs more width than `sky`. A
 in a typewriter. That makes it especially useful for the mosaic's regular grid.
 A proportional font gives different advances to different characters.
 
-For word clouds, we measure the **ink bounds**: a rectangle that contains the
-actual letter shapes and the baseline origin, including descenders such as
-the bottom of `g`. The **baseline** is the invisible line that letters sit on.
-We record its offset from the ink rectangle's center, so measurement and drawing agree.
-
-Spacing advances and generic line heights are different measurements; using
-them as letter bounds can miscenter text or let it extend past its reserved
-space. We use [Go's `font.BoundString`](https://pkg.go.dev/golang.org/x/image/font#BoundString)
-for ink bounds and [gg](https://github.com/fogleman/gg/blob/v1.3.0/context.go) for
-drawing. Collision checks still reserve the whole ink rectangle plus padding,
-including the empty space between letters.
+The project uses `gg` to measure and draw text. Its measurements are layout
+metrics, not a pixel-by-pixel outline of the ink. That distinction matters when
+we explain rectangular word-cloud collision checks.
+See [gg's text measurement and drawing source](https://github.com/fogleman/gg/blob/v1.3.0/context.go).
 
 ## 3. Building a word cloud
 
@@ -189,85 +182,57 @@ the result.
 
 ### Step 1: Decide which pixels form the shape
 
-Keep three separate questions in mind:
+The code keeps two versions of the image: the original colors for drawing,
+and a grayscale copy for deciding where words may fit. For images with alpha,
+pixels at or below the default alpha threshold of 8 are invisible. Hidden RGB
+values must never create placement space.
 
-1. **Where is the subject?** A geometry map preserves its shape, including
-   enclosed shadows.
-2. **Where will text be visible?** A detail map measures how much each source
-   pixel differs from the drawing background.
-3. **Where may a word fit?** A placement mask combines geometry and visible
-   detail; later steps check whole rectangles against it.
+**Thresholding** separates pixels into two brightness groups. **Otsu's method**
+chooses the cutoff from the image's brightness distribution. It seeks groups
+with small variation within each group; it does not identify objects.
+See [OpenCV's thresholding tutorial](https://docs.opencv.org/4.x/d7/d4d/tutorial_py_thresholding.html).
 
-The original colors stay intact for rendering. These maps describe geometry
-and contrast; they do not recolor the source.
+The brightness distribution is a **histogram**: a count of pixels in each of
+256 shade bins. A black background and an orange helmet tend to form two
+brightness groups. Otsu helps separate those groups, but we still need to
+choose which group should contain words.
 
-**Transparent cutouts:** alpha greater than 8 defines the visible subject.
-Both light and dark pixels belong to that shape. Hidden RGB values contribute
-nothing. A white highlight should not disappear merely because another part
-of the subject is dark.
+Our rule is to treat the **image border as a clue about the background**.
+We first select the dark group, then inspect visible pixels along the outer
+perimeter. If more than half of those border pixels belong to the dark group,
+we switch to selecting the bright group. Otherwise, we keep the dark group.
+If visible luminance is uniform, or the entire border is transparent,
+we keep dark-foreground selection as a fallback.
 
-Some PNGs contain an opaque rectangular panel with transparent rounded corners.
-The DeepSeek fixture is an example: the blue whale sits on a white panel.
-If the visible pixels fill at least 95% of their bounding rectangle and its
-border has a consistent color, we remove that panel's background rather than
-mistaking the entire panel for the logo. Otherwise, a substantially transparent
-border signals an alpha cutout.
+| Example | Border clue | Place words in | Draw on |
+| --- | --- | --- | --- |
+| Black logo on white | Light border | Dark logo pixels | White |
+| Orange Vader helmet on black | Dark border | Bright helmet highlights | Black |
+| Dark logo with a transparent border | No visible border clue | Dark visible pixels | White |
 
-**Simple opaque backgrounds:** estimate the most common border color, grouping
-similar RGB colors into small bins to tolerate image noise. At least 65% of
-visible bounding-border pixels must lie within 32 channel values of that color
-for us to treat it as a simple background. Its removal tolerance comes from
-the border's observed variation, with a floor of 12 channel values.
+For Vader, selecting black pixels would fill the background and leave the
+helmet as empty space. Selecting the bright group instead puts words into the
+helmet's colored highlights. Its black eyes, vents, and surrounding background
+remain empty. Those gaps help us recognize the helmet.
 
-We then remove similar-colored pixels that connect to the outside edge. Imagine
-pouring water in from the perimeter: it flows through background-colored
-neighbors but stops at a differently colored subject. This is a **flood fill**.
-An enclosed black eye remains in the subject's geometry even if the outside
-background is also black.
+For a dark background, we also change the brightness measure to the strongest
+RGB channel: `max(red, green, blue)`. A saturated red pixel such as
+`(180, 0, 0)` has a low grayscale luminance, but its color intensity is 180.
+This helps preserve red and blue detail beside bright yellow highlights. We
+apply Otsu again to this intensity image. This is our design choice for colored
+detail against darkness, rather than a claim about perceived brightness.
 
-**Busy photographs:** when the border has several unrelated colors, retain the
-whole scene. The program cannot know that two people are the intended subject
-rather than the building behind them. Supply `-mask subject-mask.png` to select
-that subject explicitly: white means selected, black means excluded. The mask
-must have the same dimensions as the source, and source transparency still
-wins over a white mask pixel. A uniform opaque image also uses the whole-image
-fallback because it has no separable background.
+Before thresholding, invisible pixels are filled with the assumed background
+brightness: initially white, and black if the border indicates a dark
+background. The threshold is recomputed using color intensity after that switch.
+This prevents hidden colors from forming a false brightness group; the number
+of invisible pixels can still influence the histogram. Alpha is reapplied after cleanup as well.
 
-For simple backgrounds, the canvas uses the estimated background color. Alpha
-cutouts and whole scenes choose black or white to maximize average channel
-contrast across visible source pixels.
-When an explicit mask selects part of an alpha cutout or a busy scene, that
-choice uses the selected pixels, so a dark subject can receive a white canvas
-even when the surrounding scene is bright.
+This is a background heuristic, not object recognition. A tightly cropped subject
+that fills the border, a busy background, or similar foreground and background
+shades can confuse it. Inspect the debug mask to see the selected regions.
 
-The **detail map** measures contrast against that canvas:
-
-```text
-contrast = max(|source red − background red|,
-               |source green − background green|,
-               |source blue − background blue|)
-```
-
-Alpha scales that value. For example, red `(35, 0, 0)` on black has contrast 35,
-so its dark colored detail can survive. An enclosed black eye on black has
-contrast 0: it belongs to the subject but supplies no visible word space.
-Pixels with contrast above 12 inside the subject enter the placement mask.
-This modest contrast floor replaces a global brightness threshold that could
-throw away a whole group of darker subject colors.
-
-| Input | Subject selection | Expected behavior |
-| --- | --- | --- |
-| Vader on black | Border-connected background removal | Dark red helmet details survive; black gaps stay quiet |
-| Cat cutout | Alpha shape | Fur, eyes, and collar share one subject geometry |
-| DeepSeek panel | Panel background removal | Place words in the blue whale, not its white panel |
-| Couple in a busy scene | Whole-scene fallback, or explicit mask | Keep the scene unless the caller selects the people |
-
-These are heuristics, not object recognition. A subject touching the border,
-a background matching its colors, or a panel resembling a cutout can still
-confuse automatic selection. The separate debug maps make that decision visible.
-
-Code: [subject and contrast analysis](../internal/imageutil/subject.go) and
-[image loading and mask assembly](../internal/imageutil/mask.go).
+Code: [image loading and mask construction](../internal/imageutil/mask.go).
 
 ### Step 2: Clean the shape and leave an edge margin
 
@@ -279,8 +244,8 @@ dilation; **closing** reverses that order. Opening can remove small specks;
 closing can fill small gaps. See [OpenCV's morphology tutorial](https://docs.opencv.org/4.x/d9/d61/tutorial_py_morphological_ops.html).
 
 Our cleanup applies opening and closing with a 3 × 3 square. It then reapplies
-the original geometry and contrast constraints, so cleanup cannot turn a
-transparent hole or an invisible shadow into placement space.
+the visibility mask: cleanup is allowed to connect nearby visible pixels, but
+it must not turn transparent holes into placement space.
 
 Placement adds a separate erosion, using `SafeZoneErodeSize`, which defaults to
 3. On a straight interior boundary, a centered 3 × 3 kernel removes about one
@@ -354,8 +319,8 @@ small **probe**, or trial layout, using the real shape, font, and important word
 
 The trial starts with the larger of the image height and the minimum font size.
 It tries candidates in frequency order until two words have been placed or the
-candidate pool is exhausted. Each trial starts at that same upper size; it
-does not inherit a previous word's shrinkage. Trial reservations are thrown away;
+candidate pool is exhausted. The second successful word starts no larger than
+the first successful word's actual size. Trial reservations are thrown away;
 the real layout starts with fresh space.
 
 When two successes have sizes `a` and `b`, the maximum is their **harmonic mean**,
@@ -386,26 +351,27 @@ Code: [font-range calibration](../internal/effects/wordcloud/sizing.go).
 ### Step 6: Translate frequency into a target size
 
 A count of 100 should look more prominent than a count of 10, but making its
-font ten times larger would let it overwhelm the cloud. We use **logarithmic
-scaling**, which compresses differences between large counts.
+font ten times larger would let it overwhelm the cloud. We compress counts
+logarithmically, then use the square root of that fraction to give intermediate
+counts more of the available size range.
 
 Here is a worked example with counts 1, 10, and 100, a minimum of 6 px, and a
 maximum of 60 px. These values illustrate sizing, before any packing changes.
 
-| Count | Linear target size | Our logarithmic target size, approximately |
+| Count | Linear target size | Our target size, approximately |
 | ---: | ---: | ---: |
 | 1 | 6 px | 6 px |
-| 10 | 11 px | 29 px |
+| 10 | 11 px | 42 px |
 | 100 | 60 px | 60 px |
 
-The logarithmic rule gives the middle word enough size to be visible. For readers
-who want to calculate it, the implementation uses `log(1 + count)`:
+The middle word remains smaller than the most frequent word. For readers who
+want to calculate it, the implementation uses `log(1 + count)`:
 
 ```text
 fraction = [ln(1 + count) − ln(1 + smallestCount)]
            / [ln(1 + largestCount) − ln(1 + smallestCount)]
 
-targetSize = minimumSize + fraction × (maximumSize − minimumSize)
+targetSize = minimumSize + √fraction × (maximumSize − minimumSize)
 ```
 
 `ln` is the natural logarithm. You can understand the behavior without knowing
@@ -502,8 +468,8 @@ Code: [free-space geometry](../internal/layout/free_space.go) and
 
 ### Step 9: Choose the largest fitting whole-pixel size
 
-Placement first tries each word's own frequency-derived desired size. Minimum
-sizes round upward; desired sizes round downward.
+Placement first tries the desired size, capped by the previous successful
+word's actual size. Minimum sizes round upward; desired sizes round downward.
 For example, a minimum of 6.2 means at least 7 px, and a target of 29.8 starts
 at 29 px.
 
@@ -527,10 +493,10 @@ This relies on the footprint model becoming no larger as the font size shrinks.
 Words are remeasured at each trial size. Trial fit checks do not reserve space;
 only the final accepted placement does.
 
-Shrinkage is local to the word. If a long important word shrinks to 18 px, a
-shorter later word with a target of 30 px may still use 30 px when it fits.
-Frequency orders the candidates and sets their target sizes; geometry can
-change their actual sizes. Actual sizes therefore need not decrease monotonically.
+The cap from the previous success keeps actual font sizes non-increasing. If
+an important word shrinks to 18 px, a later word cannot grow back to 30 px.
+Frequency therefore influences the result, but shape constraints can flatten
+its intended size differences.
 
 Code: [placement and size search](../internal/effects/wordcloud/placement.go).
 
@@ -584,39 +550,26 @@ Code: [region construction and ranking](../internal/effects/wordcloud/regions.go
 
 ### Step 11: Draw the accepted layout
 
-The placement result records each word, actual font size, ink bounds, baseline
-offsets, center, and angle. The renderer clears the canvas to the background
-chosen during subject preparation.
+The placement result records each word, actual font size, center, and angle.
+The renderer starts with an opaque black canvas when the mask selected bright
+foreground, and an opaque white canvas otherwise. Unoccupied space therefore
+matches the background's brightness group.
 
-Each accepted word gets **one color from the original image**. First, draw its
-letters into a small transparent bitmap using the same font and baseline offsets
-as the final output. That bitmap tells us which source pixels are beneath
-actual ink. Empty space around and between letters contributes nothing. For a
-vertical word, rotate the sampling positions along with the word.
+Each accepted word gets **one color from the original image**. The renderer
+groups the source colors under its measured rectangle and selects an actual
+pixel color near the center of the largest color group. Transparent pixels
+contribute nothing; partially transparent pixels contribute according to their
+alpha. For a vertical word, the rectangle's width and height swap before
+sampling. A word spanning red and yellow therefore stays a source color
+instead of becoming an artificial orange blend. The sampled color is then
+moved farther from the canvas color for readability. Dark colors get brighter
+against black, and light colors get darker against white. A color identical to
+the canvas has no direction to move without inventing a new color.
 
-By default, choose a **representative local color**. Group sampled RGB values
-into 16-value channel bins, and weight each group by letter coverage, source
-alpha, and contrast against the canvas. Within the winning group, select an
-actual source pixel closest to the group's weighted mean. This keeps each word
-one readable color without mixing unrelated hues into a new, dull shade.
-
-For example, if most letter pixels cover red and a few cover yellow, a red
-word can preserve the dominant painted region. Averaging those colors instead
-would produce orange even if none of the sampled pixels were orange.
-
-`-color-mode mean` selects the alternative: average all sampled channels,
-weighted by letter coverage and source alpha. Both modes ignore hidden RGB.
-Converting to `color.NRGBA` supplies unmultiplied channels before applying those
-weights. See [Go's color types and alpha contract](https://pkg.go.dev/image/color).
-
-Finally, draw at the accepted center and rotation, using the stored baseline
-offsets. Sampling and drawing share the same letter bounds, so a different font
-or uppercase text cannot silently change how the layout is anchored.
-
-The original mono font remains supported. For a stronger proportional style,
-select `-font fonts/NotoSans-Bold.ttf`; add `-uppercase` to capitalize display
-text **before** measuring it. Counts are unchanged. See the
-[font source and license](../fonts/README.md).
+Finally, the renderer loads the font at the accepted size, moves the drawing
+origin to the word's center, rotates it, and draws the colored text with a
+centered anchor. It restores the drawing state for the next word. Keeping
+sampling and drawing separate from packing makes geometry easier to inspect.
 
 Try the dark-background fixture:
 
@@ -624,17 +577,16 @@ Try the dark-background fixture:
 go run ./cmd/mosaic \
   -effect wordcloud \
   -in testdata/images/darth_vader_og.jpg \
-  -text testdata/text/darth_vader.txt \
-  -font "fonts/NotoSans-Bold.ttf" \
-  -uppercase \
+  -text testdata/text/sample_text_message.txt \
+  -font "fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
   -out vader-colored.png
 ```
 
 ![Vader word cloud using sampled source colors on black](assets/examples/darth-vader-wordcloud.png)
 
 The result should contain red, orange, and yellow words on black. It will not
-reproduce every painted detail: one word has one color, low-contrast pixels
-supply little visible detail, and word rectangles need room around their letters.
+reproduce every painted detail: thresholding discards dark shading, and whole
+word rectangles need more room than individual image pixels.
 
 Code: [word-cloud orchestration](../internal/effects/wordcloud/wordcloud.go) and
 [renderer](../internal/effects/wordcloud/render.go).
@@ -807,23 +759,20 @@ what you actually see.
 
 ### Settings you can change in Go
 
-The CLI exposes `-effect`, `-in`, `-text`, `-font`, and `-out`, plus word-cloud
-controls `-mask`, `-uppercase`, `-color-mode`, and `-debug`. The table below also
-includes settings available only in Go. Start with `NewConfig` so defaults are
-populated, then use options or assign fields before calling `Generate`.
+The CLI currently exposes only `-effect`, `-in`, `-text`, `-font`, and `-out`.
+The controls below are Go configuration fields, not additional command-line
+flags. Start with `NewConfig` so defaults are populated, then use options or
+assign fields before calling `Generate`.
 
 | Word-cloud setting | Default | What a change means |
 | --- | --- | --- |
-| `SubjectMaskPath` (`-mask`) | Empty, automatic | Select subject geometry explicitly with a matching white/black mask |
-| `Uppercase` (`-uppercase`) | `false` | Capitalize display text before measuring it |
-| `ColorMode` (`-color-mode`) | `representative` | Use an actual dominant local source color; `mean` averages colors beneath letters |
 | `MinFontSize` | 0, resolved to 6 px | Raising it makes the smallest text larger but can skip more words |
 | `WordLimit` | 500 | More distinct candidates to attempt; available space still limits success |
 | `SafeZoneErodeSize` | 3 | A larger positive odd kernel shrinks the permitted shape more |
 | `WordPadding` | 1 px per side | More separation, larger footprints, and less room for words |
 | `AlphaThreshold` | 8 | Raising it excludes more low-opacity source pixels |
 | `Angles` | `[0, 90]` | Allowed orientations in preference order; only these two angles are supported |
-| `Debug` (`-debug`) | `false` | Write intermediate images to explain the layout |
+| `Debug` | `false` | Write intermediate images to explain the layout |
 
 For a complete example, save the following as `learn.go` at the repository root
 and run `go run learn.go` from there. It creates a horizontal-only cloud with
@@ -910,13 +859,11 @@ a large output is displayed as a small preview.
 
 ### Read the cloud's intermediate images in order
 
-With `-debug` or Go `Debug` enabled and output `cloud.png`, the program also writes:
+With `Debug` enabled and output `cloud.png`, the program also writes:
 
 | File | How to read it |
 | --- | --- |
-| `cloud_00-subject.png` | White is subject geometry, including enclosed shadows. |
-| `cloud_00-detail.png` | Bright pixels contrast more strongly with the rendering canvas. |
-| `cloud_01-mask.png` | White is placeable contrast within subject geometry. If this space is wrong, packing cannot repair it. |
+| `cloud_01-mask.png` | White is the selected silhouette. If this shape is wrong, later packing cannot repair it. |
 | `cloud_02-distance.png` | Brighter values indicate deeper interior locations; values are normalized for display. |
 | `cloud_03-regions.png` | Different gray labels show different regions. Their brightness does not represent importance. |
 | `cloud_04-safe-zone.png` | White is the shape remaining after the placement edge erosion. |
@@ -1011,8 +958,8 @@ The implementation links throughout this guide are the source of truth for
 project-specific behavior. These external references explain underlying
 operations or identify documented design influences:
 
-1. **Go image font package, [`font.BoundString`](https://pkg.go.dev/golang.org/x/image/font#BoundString).**
-   Actual dependency used to measure word-cloud ink bounds and baseline offsets.
+1. **OpenCV, [Image Thresholding](https://docs.opencv.org/4.x/d7/d4d/tutorial_py_thresholding.html).**
+   Reference for binary thresholding and Otsu's method, used in silhouette selection.
 2. **OpenCV, [Morphological Transformations](https://docs.opencv.org/4.x/d9/d61/tutorial_py_morphological_ops.html).**
    Reference for erosion, dilation, opening, and closing. Our kernel choices and
    legal-center/reservation convention are specified by this repository.
@@ -1034,8 +981,6 @@ operations or identify documented design influences:
    Actual drawing dependency used for font measurement, anchored text, and rendering.
 8. **Go standard library, [`image/color.Color`](https://pkg.go.dev/image/color#Color).**
    Contract for the alpha-premultiplied values returned by `RGBA()`.
-9. **Noto Project, [Noto Sans Bold](https://github.com/notofonts/noto-fonts/blob/main/hinted/ttf/NotoSans/NotoSans-Bold.ttf).**
-   Bundled proportional bold font, distributed with its [SIL Open Font License](../fonts/OFL.txt).
 
 The checked-in [stop-word data](../internal/textutil/data/stopwords.json) and
 [generator](../internal/textutil/cmd/genstopwords/main.go) explain the current

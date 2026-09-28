@@ -1,8 +1,9 @@
 package wordcloud
 
 import (
-	"github.com/santiagoa58/image-play/internal/textutil"
 	"testing"
+
+	"github.com/santiagoa58/image-play/internal/textutil"
 )
 
 func TestNewConfigUsesDefaultsAndAppliesOptions(t *testing.T) {
@@ -67,12 +68,5 @@ func TestUppercasePreservesCountsAndOriginalText(t *testing.T) {
 	upper := displayWordCounts(counts, true)
 	if upper[0].Word != "VADER" || upper[0].Count != 10 || upper[1].Word != "JEDI" || counts[0].Word != "vader" {
 		t.Fatal("uppercase changed counts or original text")
-	}
-}
-
-func TestInvalidColorModeIsRejected(t *testing.T) {
-	cfg := NewConfig(WithInputPath("input.png"), WithTextPath("text.txt"), WithFontPath("font.ttf"), WithColorMode("unknown"))
-	if err := cfg.Validate(); err == nil {
-		t.Fatal("invalid color mode accepted")
 	}
 }

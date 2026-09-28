@@ -12,12 +12,8 @@ import (
 type Config struct {
 	// InputPath supplies the placement silhouette, word colors, and background clue.
 	InputPath string
-	// SubjectMaskPath optionally supplies a matching white-subject, black-background mask.
-	SubjectMaskPath string
 	// Uppercase converts display text before font measurement and placement.
 	Uppercase bool
-	// ColorMode is representative (a local source color) or mean (a glyph-weighted average).
-	ColorMode string
 	// OutputPath is the target PNG. When empty, Generate derives one from InputPath.
 	OutputPath string
 	// TextPath is the UTF-8 text source whose word frequencies drive the cloud.
@@ -59,7 +55,6 @@ type Option func(*Config)
 //	)
 func NewConfig(options ...Option) Config {
 	cfg := Config{
-		ColorMode:         "representative",
 		MinFontSize:       0,
 		WordLimit:         500,
 		SafeZoneErodeSize: 3,
@@ -86,8 +81,6 @@ func (cfg Config) Validate() error {
 		return errors.New("text path is required")
 	case strings.TrimSpace(cfg.FontPath) == "":
 		return errors.New("font path is required")
-	case cfg.ColorMode != "representative" && cfg.ColorMode != "mean":
-		return errors.New("color mode must be representative or mean")
 	case cfg.MinFontSize < 0:
 		return errors.New("minimum font size must be zero (automatic) or positive")
 	case cfg.WordLimit <= 0:
@@ -132,11 +125,5 @@ func WithDebug(debug bool) Option {
 	return func(cfg *Config) { cfg.Debug = debug }
 }
 
-// WithSubjectMaskPath supplies an explicit subject selection for complex scenes.
-func WithSubjectMaskPath(path string) Option { return func(cfg *Config) { cfg.SubjectMaskPath = path } }
-
 // WithUppercase selects uppercase display text without changing word frequencies.
 func WithUppercase(enabled bool) Option { return func(cfg *Config) { cfg.Uppercase = enabled } }
-
-// WithColorMode chooses representative source colors or glyph-weighted means.
-func WithColorMode(mode string) Option { return func(cfg *Config) { cfg.ColorMode = mode } }

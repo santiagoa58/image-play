@@ -129,30 +129,3 @@ func placementContextForShape(t *testing.T, rect image.Rectangle, padding int) *
 	t.Cleanup(ctx.Close)
 	return ctx
 }
-
-func TestCandidateCanGrowAfterAnAwkwardWordShrinks(t *testing.T) {
-	ctx := placementContextForShape(t, image.Rect(10, 10, 90, 90), 1)
-	font := wordcloudTestFontPath(t)
-	long, err := textutil.MeasureWord("extraordinarilylong", 20, font, 40)
-	if err != nil {
-		t.Fatal(err)
-	}
-	first, err := placeCandidate(ctx, long, 6)
-	if err != nil {
-		t.Fatal(err)
-	}
-	short, err := textutil.MeasureWord("I", 10, font, 35)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second, err := placeCandidate(ctx, short, 6)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if first.Word.FontSize >= 35 {
-		t.Fatalf("long word did not establish shrinkage: %v", first.Word.FontSize)
-	}
-	if second.Word.FontSize != 35 {
-		t.Fatalf("short word inherited shrinkage: %v, want 35", second.Word.FontSize)
-	}
-}
