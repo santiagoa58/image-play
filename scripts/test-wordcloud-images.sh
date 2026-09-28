@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate every image fixture using the Darth Vader text and mono font.
+# Generate every image fixture using Darth Vader text and bold uppercase words.
 # Usage: scripts/test-wordcloud-images.sh [output-directory] [extra CLI flags...]
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -20,6 +20,6 @@ for input in testdata/images/*; do
   esac
   "$build_directory/mosaic" -effect wordcloud -in "$input" \
     -text testdata/text/darth_vader.txt \
-    -font 'fonts/NotoSansMono-VariableFont_wdth,wght.ttf' \
+    -font fonts/NotoSans-Bold.ttf -uppercase \
     -out "$output_directory/$stem.png" "$@"
 done

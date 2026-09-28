@@ -23,9 +23,9 @@ Code links and configuration examples connect each idea to the implementation.
 ## Example effects
 
 The same source image and text can be rendered with either supported effect.
-These previews were generated using
-`testdata/images/gen-img-couple.png`, the sample text, and the included
-Noto Sans Mono font.
+These previews use `testdata/images/gen-img-couple.png` and the same sample
+text. The word cloud uses Noto Sans Bold with uppercase display; the text
+mosaic uses Noto Sans Mono.
 
 <table>
   <tr>
@@ -55,16 +55,17 @@ This preserves colored highlights and dark interior gaps in images such as
 `testdata/images/darth_vader_og.jpg`. Transparent borders keep dark-foreground
 selection. Border detection is a heuristic; it does not recognize objects.
 
-The supplied `-font` path determines the typeface and weight. For a bold font,
-use `-font fonts/NotoSans-Bold.ttf`; `-uppercase` optionally changes displayed
-case without changing the word counts. See [font attribution](fonts/README.md).
+The supplied `-font` path determines the typeface and weight. This example uses
+Noto Sans Bold and `-uppercase` for display; word counts are unchanged. See
+[font attribution](fonts/README.md).
 
 ```bash
 go run ./cmd/mosaic \
   -effect wordcloud \
   -in testdata/images/gen-img-couple.png \
   -text testdata/text/sample_text_message.txt \
-  -font "fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+  -font fonts/NotoSans-Bold.ttf \
+  -uppercase \
   -out output.png
 ```
 

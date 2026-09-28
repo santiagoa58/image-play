@@ -66,13 +66,15 @@ go run ./cmd/mosaic \
   -effect wordcloud \
   -in testdata/images/gen-img-couple.png \
   -text testdata/text/sample_text_message.txt \
-  -font "fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+  -font fonts/NotoSans-Bold.ttf \
+  -uppercase \
   -out wordcloud.png
 ```
 
-To make the other effect, change `-effect wordcloud` to `-effect textmosaic` and
-`-out wordcloud.png` to `-out textmosaic.png`. The file paths are the same.
-The quotation marks keep the font path together as one command argument.
+For text mosaic, change the effect and output path, use
+`-font "fonts/NotoSansMono-VariableFont_wdth,wght.ttf"`, and omit `-uppercase`.
+The image and text paths stay the same. The quotation marks keep the mono font
+path together as one command argument.
 
 Open the mosaic over a dark background to see its light characters clearly.
 Its PNG is transparent; the dark background in the preview above is for display.
@@ -578,7 +580,8 @@ go run ./cmd/mosaic \
   -effect wordcloud \
   -in testdata/images/darth_vader_og.jpg \
   -text testdata/text/sample_text_message.txt \
-  -font "fonts/NotoSansMono-VariableFont_wdth,wght.ttf" \
+  -font fonts/NotoSans-Bold.ttf \
+  -uppercase \
   -out vader-colored.png
 ```
 
@@ -791,7 +794,8 @@ func main() {
 	cfg := wordcloud.NewConfig(
 		wordcloud.WithInputPath("testdata/images/gen-img-couple.png"),
 		wordcloud.WithTextPath("testdata/text/sample_text_message.txt"),
-		wordcloud.WithFontPath("fonts/NotoSansMono-VariableFont_wdth,wght.ttf"),
+		wordcloud.WithFontPath("fonts/NotoSans-Bold.ttf"),
+		wordcloud.WithUppercase(true),
 		wordcloud.WithOutputPath("cloud.png"),
 		wordcloud.WithMinFontSize(10),
 		wordcloud.WithDebug(true),
