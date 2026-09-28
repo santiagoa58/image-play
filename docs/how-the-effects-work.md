@@ -564,8 +564,9 @@ pixel color near the center of the largest color group. Transparent pixels
 contribute nothing; partially transparent pixels contribute according to their
 alpha. For a vertical word, the rectangle's width and height swap before
 sampling. A word spanning red and yellow therefore stays a source color
-instead of becoming an artificial orange blend. The sampled color is then
-moved farther from the canvas color for readability. Dark colors get brighter
+instead of becoming an artificial orange blend. The sampled color gets a
+1.3× saturation boost to make its hue more vivid, then it is moved farther
+from the canvas color for readability. Dark colors get brighter
 against black, and light colors get darker against white. A color identical to
 the canvas has no direction to move without inventing a new color.
 
