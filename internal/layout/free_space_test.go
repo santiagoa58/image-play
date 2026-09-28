@@ -115,6 +115,46 @@ func TestReserveMaskKeepsGapsAvailableToRectangles(t *testing.T) {
 	}
 }
 
+func TestValidCentersMaskMatchesPixelChecksWithOffset(t *testing.T) {
+	allowed := maskFromRows([]string{
+		"########", "##..####", "########", "########", "########", "########",
+	})
+	defer allowed.Close()
+	space, err := NewFreeSpace(allowed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer space.Close()
+	glyph := maskFromRows([]string{"#.#", ".#."})
+	defer glyph.Close()
+	for _, offset := range []image.Point{image.Pt(-2, -1), image.Pt(1, 2)} {
+		centers, err := space.ValidCentersMask(glyph, offset)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for y := 0; y < allowed.Rows(); y++ {
+			for x := 0; x < allowed.Cols(); x++ {
+				want := true
+				for gy := 0; gy < glyph.Rows(); gy++ {
+					for gx := 0; gx < glyph.Cols(); gx++ {
+						if glyph.GetUCharAt(gy, gx) == 0 {
+							continue
+						}
+						px, py := x+offset.X+gx, y+offset.Y+gy
+						if px < 0 || py < 0 || px >= allowed.Cols() || py >= allowed.Rows() || allowed.GetUCharAt(py, px) == 0 {
+							want = false
+						}
+					}
+				}
+				if got := centers.GetUCharAt(y, x) != 0; got != want {
+					t.Errorf("offset %v center (%d,%d): got %v, want %v", offset, x, y, got, want)
+				}
+			}
+		}
+		centers.Close()
+	}
+}
+
 func maskFromRows(rows []string) gocv.Mat {
 	mask := gocv.NewMatWithSize(len(rows), len(rows[0]), gocv.MatTypeCV8UC1)
 	for y, row := range rows {

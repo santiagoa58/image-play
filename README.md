@@ -119,8 +119,9 @@ rectangular erosion returns every integer center at which a measured, padded
 rectangle fits wholly within that map. Words at 24 px or smaller reserve that
 rectangle. Larger words reserve their padded, rendered glyph pixels, leaving
 space around the letters for later words. If glyph pixels extend beyond the
-measured rectangle into unavailable space, placement retains the original
-rectangular reservation. Tests compare legal centers pixel for pixel against
+measured rectangle into unavailable space, placement finds another center
+where both the rectangle and rendered glyph fit. Tests compare legal centers
+pixel for pixel against
 exhaustive rectangle checks on small irregular shapes. The exactness claim
 applies to the fit checks, not the rendered glyph outlines.
 
@@ -148,8 +149,9 @@ larger, harder-to-fit words are attempted before smaller gap-filling words.
 Fit checks consider both configured orientations across the complete remaining
 free space. At the chosen size, placement favors a less-filled shape region,
 then the configured orientation order (horizontal first by default), then the
-deepest legal center in that region. Each reservation contributes its actual
-occupied pixels to every region it crosses. A skipped word has no legal
+deepest legal center in that region. Each word credits its measured rectangle
+to region coverage, while the free-space mask reserves glyph pixels for larger
+words. A skipped word has no legal
 position in either orientation at the permitted minimum size.
 
 ## Text mosaic

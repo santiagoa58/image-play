@@ -47,6 +47,7 @@ func resolveMaxFontSize(
 		return 0, fmt.Errorf("create font-size probe layout: %w", err)
 	}
 	defer probe.Close()
+	probe.reserveRectangles = true
 
 	trialMax := math.Max(minSize, float64(mask.Height))
 	placedSizes := make([]float64, 0, 2)

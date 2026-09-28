@@ -55,6 +55,38 @@ func (s *FreeSpace) ValidCenters(size image.Point) (gocv.Mat, error) {
 	return result, nil
 }
 
+// ValidCentersMask returns centers where every nonzero mask pixel fits in free
+// space. Offset locates the mask's top-left corner relative to the word center.
+func (s *FreeSpace) ValidCentersMask(mask gocv.Mat, offset image.Point) (gocv.Mat, error) {
+	if mask.Empty() || mask.Type() != gocv.MatTypeCV8UC1 {
+		return gocv.NewMat(), errors.New("glyph footprint requires a nonempty binary mask")
+	}
+	minX, minY := min(0, offset.X), min(0, offset.Y)
+	maxX, maxY := max(1, offset.X+mask.Cols()), max(1, offset.Y+mask.Rows())
+	width, height := maxX-minX, maxY-minY
+	if width > s.free.Cols() || height > s.free.Rows() {
+		return gocv.NewMatWithSize(s.free.Rows(), s.free.Cols(), gocv.MatTypeCV8UC1), nil
+	}
+	kernel := gocv.NewMatWithSize(height, width, gocv.MatTypeCV8UC1)
+	defer kernel.Close()
+	region := kernel.Region(image.Rect(offset.X-minX, offset.Y-minY, offset.X-minX+mask.Cols(), offset.Y-minY+mask.Rows()))
+	if err := mask.CopyTo(&region); err != nil {
+		region.Close()
+		return gocv.NewMat(), err
+	}
+	region.Close()
+	result := gocv.NewMat()
+	err := gocv.ErodeWithParamsAndBorderValue(
+		s.free, &result, kernel, image.Pt(-minX, -minY),
+		1, gocv.BorderConstant, gocv.NewScalar(0, 0, 0, 0),
+	)
+	if err != nil {
+		result.Close()
+		return gocv.NewMat(), err
+	}
+	return result, nil
+}
+
 // Reserve removes a footprint from free space. It returns false without
 // changing anything when the proposed rectangle is outside or occupied.
 func (s *FreeSpace) Reserve(size, center image.Point) bool {

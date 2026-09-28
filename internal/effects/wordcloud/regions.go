@@ -188,20 +188,3 @@ func (p *regionPolicy) reserve(rect image.Rectangle) {
 		}
 	}
 }
-
-func (p *regionPolicy) reserveMask(mask gocv.Mat, origin image.Point) error {
-	pixels, err := mask.DataPtrUint8()
-	if err != nil {
-		return err
-	}
-	for index, pixel := range pixels {
-		if pixel == 0 {
-			continue
-		}
-		x, y := origin.X+index%mask.Cols(), origin.Y+index/mask.Cols()
-		if id := p.labels[y*p.width+x]; id >= 0 {
-			p.occupied[id]++
-		}
-	}
-	return nil
-}

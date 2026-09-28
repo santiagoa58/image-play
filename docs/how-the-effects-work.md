@@ -322,7 +322,8 @@ small **probe**, or trial layout, using the real shape, font, and important word
 The trial starts with the larger of the image height and the minimum font size.
 It tries candidates in frequency order until two words have been placed or the
 candidate pool is exhausted. The second successful word starts no larger than
-the first successful word's actual size. Trial reservations are thrown away;
+the first successful word's actual size. The trial uses rectangular reservations
+so the size calibration does not depend on glyph reservation. Trial reservations are thrown away;
 the real layout starts with fresh space.
 
 When two successes have sizes `a` and `b`, the maximum is their **harmonic mean**,
@@ -418,8 +419,8 @@ words, the renderer's glyph pixels are rasterized once after choosing a center,
 enclosed letter holes are filled, and padding expands the shape. Only those
 pixels are removed from free space. Space around and between large letters can
 then hold later words, while small words keep the faster rectangular path. If
-glyph pixels overhang the measured rectangle into unavailable space, the
-reservation falls back to the original rectangle.
+glyph pixels overhang the measured rectangle into unavailable space, placement
+checks another center against both shapes instead of accepting the collision.
 
 ### Step 8: Find every legal center
 
@@ -465,8 +466,9 @@ The erosion anchor and reservation use the same convention. Matching those two
 operations prevents one-pixel disagreements about what a center represents.
 
 **“Exact fit” refers to these measured, padded rectangles on the integer grid.**
-The glyph reservation for larger words changes subsequent free space, but not
-how the current word is checked for fit. It does not mean perfect image
+The glyph reservation for larger words changes subsequent free space. A
+rendered glyph that overhangs its measured rectangle gets an additional fit
+check. It does not mean perfect image
 segmentation or a globally optimal arrangement. Tests compare the center maps against checking
 every rectangle pixel directly on small irregular shapes.
 
@@ -537,8 +539,9 @@ region with only vertical positions can therefore win over another region with
 horizontal positions.
 
 A word may cross region boundaries. Regions rank its center; they are not walls
-around its rectangle. Reservation credits the pixels actually occupied in each
-region it crosses. Geometry still checks the full rectangle against free space.
+around its rectangle. Region scoring credits the measured rectangle in each
+region it crosses, regardless of font stroke weight. The free-space mask uses
+the glyph shape for larger words; fit checks still require the full rectangle.
 
 This policy draws on ShapeWordle's use of a distance field and multiple shape
 parts. ShapeWordle develops shape-aware spiral trajectories; this implementation

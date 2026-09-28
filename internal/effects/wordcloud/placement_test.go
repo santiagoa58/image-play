@@ -103,6 +103,13 @@ func TestLargeWordReservesGlyphWhileSmallWordReservesRectangle(t *testing.T) {
 			}
 			occupied := gocv.CountNonZero(*ctx.occupancy)
 			rect := ctx.footprint(word, placed.Angle)
+			regionCredit := 0
+			for _, count := range ctx.regions.occupied {
+				regionCredit += count
+			}
+			if regionCredit != rect.X*rect.Y {
+				t.Fatalf("region credited %d pixels, want measured rectangle of %d", regionCredit, rect.X*rect.Y)
+			}
 			if size <= 24 && occupied != rect.X*rect.Y {
 				t.Fatalf("small word occupied %d pixels, want rectangle of %d", occupied, rect.X*rect.Y)
 			}
@@ -110,6 +117,54 @@ func TestLargeWordReservesGlyphWhileSmallWordReservesRectangle(t *testing.T) {
 				t.Fatalf("large word occupied %d pixels, want less than rectangle of %d", occupied, rect.X*rect.Y)
 			}
 		})
+	}
+}
+
+func TestProbeKeepsRectangularReservation(t *testing.T) {
+	ctx := placementContextForShape(t, image.Rect(0, 0, 100, 100), 1)
+	ctx.reserveRectangles = true
+	word, err := textutil.MeasureWord("I", 1, wordcloudTestFontPath(t), 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	placed, err := ctx.Place(word, 60, 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rect := ctx.footprint(word, placed.Angle)
+	if got := gocv.CountNonZero(*ctx.occupancy); got != rect.X*rect.Y {
+		t.Fatalf("probe occupied %d pixels, want %d", got, rect.X*rect.Y)
+	}
+}
+
+func TestGlyphOverhangFindsAnotherCenter(t *testing.T) {
+	ctx := placementContextForShape(t, image.Rect(0, 0, 100, 100), 1)
+	ctx.angles = []int{90}
+	word, err := textutil.MeasureWord("I", 1, wordcloudTestFontPath(t), 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _, found, err := ctx.choosePlacementCenter(word, false)
+	if err != nil || !found {
+		t.Fatalf("choose rectangular center: found=%v err=%v", found, err)
+	}
+	glyph, err := rasterizeGlyph(word, ctx.fontPath, 90, ctx.wordPadding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer glyph.Close()
+	if first.Add(glyph.offset).X >= 0 {
+		t.Fatalf("test needs a center with a glyph overhang: %v", first)
+	}
+	placed, err := ctx.Place(word, 60, 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if placed.Angle != 90 || placed.Word.FontSize != 60 || int(placed.X) == first.X {
+		t.Fatalf("did not keep size and choose a safe vertical center: %+v", placed)
+	}
+	if !image.Pt(int(placed.X)+glyph.offset.X, int(placed.Y)+glyph.offset.Y).In(image.Rect(0, 0, 100, 100)) {
+		t.Fatal("glyph origin remained outside the canvas")
 	}
 }
 
