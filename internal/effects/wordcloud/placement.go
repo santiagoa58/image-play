@@ -30,8 +30,6 @@ type PlacementContext struct {
 	fontPath    string
 	wordPadding int
 	angles      []int
-	// The font-size probe must use the same rectangular layout as before.
-	reserveRectangles bool
 }
 
 func (ctx *PlacementContext) Close() {
@@ -48,9 +46,9 @@ func (ctx *PlacementContext) Close() {
 
 // Place selects the largest fitting whole-pixel font size at or above the
 // minimum. A failed placement means no footprint fits at the minimum size.
-func (ctx *PlacementContext) Place(word textutil.Word, maxFontSize, minFontSize float64) (PlacedWord, error) {
+func (ctx *PlacementContext) Place(word textutil.Word, minFontSize float64) (PlacedWord, error) {
 	minimum := int(math.Ceil(minFontSize))
-	desired := int(math.Floor(math.Min(word.FontSize, maxFontSize)))
+	desired := int(math.Floor(word.FontSize))
 	if minimum <= 0 || desired < minimum {
 		return PlacedWord{}, errors.New("invalid font-size range")
 	}
@@ -146,7 +144,7 @@ func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, boo
 	if err != nil || !found {
 		return PlacedWord{}, false, err
 	}
-	if word.FontSize > 24 && !ctx.reserveRectangles {
+	if word.FontSize > 24 {
 		glyph, err := rasterizeGlyph(word, ctx.fontPath, angle, ctx.wordPadding)
 		if err != nil {
 			return PlacedWord{}, false, err
@@ -187,7 +185,7 @@ func (ctx *PlacementContext) reserveGlyph(glyph glyphFootprint, rectangle, cente
 		return err
 	}
 	if !reserved {
-		return ctx.reserveFootprint(rectangle, center)
+		return errors.New("selected glyph could not be reserved")
 	}
 	// Keep the original rectangular region score. Only collision space uses the
 	// glyph shape; region ranking is independent of the font's stroke weight.

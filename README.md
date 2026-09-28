@@ -118,9 +118,7 @@ binary map of the remaining silhouette. OpenCV's
 rectangular erosion returns every integer center at which a measured, padded
 rectangle fits wholly within that map. Words at 24 px or smaller reserve that
 rectangle. Larger words reserve their padded, rendered glyph pixels, leaving
-space around the letters for later words. If the raster does not fit at the
-chosen center, placement retains the measured rectangle. Tests compare legal centers
-pixel for pixel against
+space around the letters for later words. Tests compare legal centers pixel for pixel against
 exhaustive rectangle checks on small irregular shapes. The exactness claim
 applies to the fit checks, not the rendered glyph outlines.
 
@@ -138,9 +136,8 @@ maps counts logarithmically, then spreads intermediate counts toward larger
 sizes within this range. When a desired size does not fit,
 placement binary-searches whole-pixel font sizes down to the minimum.
 
-The maximum starting size for each new word is capped by the previous
-successfully placed word's actual size. This keeps rendered sizes
-non-increasing even when an important word had to shrink to fit.
+Each word starts at its own frequency-derived size. Shrinking one word to fit
+does not cap the sizes attempted for later words.
 
 When words have equal frequency, their measured rectangle area breaks the tie:
 larger, harder-to-fit words are attempted before smaller gap-filling words.

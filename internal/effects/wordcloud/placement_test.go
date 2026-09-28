@@ -17,7 +17,7 @@ import (
 func TestPlaceFindsAPositionOutsideOldSearchCenters(t *testing.T) {
 	ctx := placementContextForShape(t, image.Rect(70, 70, 92, 90), 0)
 	word := textutil.Word{Text: "test", FontSize: 10, Width: 12, Height: 7}
-	placed, err := ctx.Place(word, 10, 10)
+	placed, err := ctx.Place(word, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func TestPlaceFindsAPositionOutsideOldSearchCenters(t *testing.T) {
 func TestPlaceUsesVerticalWhenHorizontalCannotFit(t *testing.T) {
 	ctx := placementContextForShape(t, image.Rect(46, 20, 54, 80), 0)
 	word := textutil.Word{Text: "test", FontSize: 10, Width: 30, Height: 6}
-	placed, err := ctx.Place(word, 10, 10)
+	placed, err := ctx.Place(word, 10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestPlaceUsesVerticalWhenHorizontalCannotFit(t *testing.T) {
 func TestPlaceSkipsOnlyWhenMinimumCannotFit(t *testing.T) {
 	ctx := placementContextForShape(t, image.Rect(40, 40, 45, 45), 0)
 	word := textutil.Word{Text: "test", FontSize: 10, Width: 30, Height: 8}
-	_, err := ctx.Place(word, 10, 10)
+	_, err := ctx.Place(word, 10)
 	if !errors.Is(err, errNoPlacement) {
 		t.Fatalf("error = %v, want errNoPlacement", err)
 	}
@@ -53,7 +53,7 @@ func TestPlaceFindsLargestFittingSize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	placed, err := ctx.Place(word, 80, 6)
+	placed, err := ctx.Place(word, 6)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -94,7 +94,7 @@ func TestLargeWordReservesGlyphWhileSmallWordReservesRectangle(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			placed, err := ctx.Place(word, size, size)
+			placed, err := ctx.Place(word, size)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -120,23 +120,6 @@ func TestLargeWordReservesGlyphWhileSmallWordReservesRectangle(t *testing.T) {
 	}
 }
 
-func TestProbeKeepsRectangularReservation(t *testing.T) {
-	ctx := placementContextForShape(t, image.Rect(0, 0, 100, 100), 1)
-	ctx.reserveRectangles = true
-	word, err := textutil.MeasureWord("I", 1, wordcloudTestFontPath(t), 60)
-	if err != nil {
-		t.Fatal(err)
-	}
-	placed, err := ctx.Place(word, 60, 60)
-	if err != nil {
-		t.Fatal(err)
-	}
-	rect := ctx.footprint(word, placed.Angle)
-	if got := gocv.CountNonZero(*ctx.occupancy); got != rect.X*rect.Y {
-		t.Fatalf("probe occupied %d pixels, want %d", got, rect.X*rect.Y)
-	}
-}
-
 func TestGlyphReservationCoversRenderedPixelsAtBothAngles(t *testing.T) {
 	for _, angle := range []int{0, 90} {
 		t.Run(fmt.Sprintf("%d-degrees", angle), func(t *testing.T) {
@@ -147,7 +130,7 @@ func TestGlyphReservationCoversRenderedPixelsAtBothAngles(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			placed, err := ctx.Place(word, 60, 60)
+			placed, err := ctx.Place(word, 60)
 			if err != nil {
 				t.Fatal(err)
 			}

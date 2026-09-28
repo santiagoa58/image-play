@@ -47,7 +47,6 @@ func resolveMaxFontSize(
 		return 0, fmt.Errorf("create font-size probe layout: %w", err)
 	}
 	defer probe.Close()
-	probe.reserveRectangles = true
 
 	trialMax := math.Max(minSize, float64(mask.Height))
 	placedSizes := make([]float64, 0, 2)
@@ -63,12 +62,7 @@ func resolveMaxFontSize(
 			return 0, fmt.Errorf("measure font-size probe word %q: %w", candidate.Word, err)
 		}
 
-		maxForWord := trialMax
-		if len(placedSizes) > 0 {
-			maxForWord = placedSizes[len(placedSizes)-1]
-		}
-
-		placed, err := probe.Place(measured, maxForWord, minSize)
+		placed, err := probe.Place(measured, minSize)
 		if err != nil {
 			if errors.Is(err, errNoPlacement) {
 				continue

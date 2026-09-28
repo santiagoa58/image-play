@@ -321,10 +321,9 @@ small **probe**, or trial layout, using the real shape, font, and important word
 
 The trial starts with the larger of the image height and the minimum font size.
 It tries candidates in frequency order until two words have been placed or the
-candidate pool is exhausted. The second successful word starts no larger than
-the first successful word's actual size. The trial uses rectangular reservations
-so the size calibration does not depend on glyph reservation. Trial reservations are thrown away;
-the real layout starts with fresh space.
+candidate pool is exhausted. Each candidate starts at the image-height trial
+size and can shrink to fit. Trial reservations are thrown away; the real
+layout starts with fresh space.
 
 When two successes have sizes `a` and `b`, the maximum is their **harmonic mean**,
 rounded to a whole pixel and kept at least as large as the minimum:
@@ -418,10 +417,7 @@ For words at 24 px or smaller, that rectangle is also reserved. For larger
 words, the renderer's glyph pixels are rasterized once after choosing a center,
 enclosed letter holes are filled, and padding expands the shape. Only those
 pixels are removed from free space. Space around and between large letters can
-then hold later words, while small words keep the faster rectangular path. If
-glyph pixels extend into unavailable space beyond the measured rectangle,
-placement falls back to reserving the rectangle. The fit check uses font
-measurements, which can differ slightly from the rendered pixels.
+then hold later words, while small words keep the faster rectangular path.
 
 ### Step 8: Find every legal center
 
@@ -477,8 +473,8 @@ Code: [free-space geometry](../internal/layout/free_space.go) and
 
 ### Step 9: Choose the largest fitting whole-pixel size
 
-Placement first tries the desired size, capped by the previous successful
-word's actual size. Minimum sizes round upward; desired sizes round downward.
+Placement first tries each word's frequency-derived desired size. Minimum sizes
+round upward; desired sizes round downward.
 For example, a minimum of 6.2 means at least 7 px, and a target of 29.8 starts
 at 29 px.
 
@@ -502,10 +498,8 @@ This relies on the footprint model becoming no larger as the font size shrinks.
 Words are remeasured at each trial size. Trial fit checks do not reserve space;
 only the final accepted placement does.
 
-The cap from the previous success keeps actual font sizes non-increasing. If
-an important word shrinks to 18 px, a later word cannot grow back to 30 px.
-Frequency therefore influences the result, but shape constraints can flatten
-its intended size differences.
+A word that shrinks to fit does not limit the starting size of the next word.
+Frequency sets the desired sizes; available space can reduce each one.
 
 Code: [placement and size search](../internal/effects/wordcloud/placement.go).
 

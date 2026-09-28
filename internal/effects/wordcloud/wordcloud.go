@@ -114,13 +114,7 @@ func Generate(cfg Config) error {
 	for i, w := range words {
 		percent := 100 * (i + 1) / len(words)
 		fmt.Printf("\rProgress: [%3d%%] %d/%d", percent, i+1, len(words))
-		prevFontSize := maxFontSize
-		if len(placed) > 0 {
-			last := placed[len(placed)-1]
-			prevFontSize = last.Word.FontSize
-		}
-
-		p, err := placeCtx.Place(w, prevFontSize, minFontSize)
+		p, err := placeCtx.Place(w, minFontSize)
 		if err != nil {
 			if errors.Is(err, errNoPlacement) {
 				skipped++
