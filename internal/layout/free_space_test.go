@@ -101,8 +101,8 @@ func TestReserveMaskKeepsGapsAvailableToRectangles(t *testing.T) {
 	defer space.Close()
 	glyph := maskFromRows([]string{"#...#", "#...#", "#####", "#...#", "#...#"})
 	defer glyph.Close()
-	if ok, err := space.ReserveMask(glyph, image.Pt(1, 0)); err != nil || !ok {
-		t.Fatalf("reserve glyph: ok=%v err=%v", ok, err)
+	if err := space.ReserveMask(glyph, image.Pt(1, 0)); err != nil {
+		t.Fatal(err)
 	}
 	if !space.Reserve(image.Pt(3, 2), image.Pt(3, 1)) {
 		t.Fatal("small rectangle should fit between glyph strokes")
@@ -110,8 +110,11 @@ func TestReserveMaskKeepsGapsAvailableToRectangles(t *testing.T) {
 	if space.Reserve(image.Pt(2, 2), image.Pt(1, 1)) {
 		t.Fatal("rectangle should not overlap glyph strokes")
 	}
-	if ok, err := space.ReserveMask(glyph, image.Pt(5, 2)); err != nil || ok {
-		t.Fatalf("out-of-bounds glyph: ok=%v err=%v", ok, err)
+	if err := space.ReserveMask(glyph, image.Pt(5, 2)); err != nil {
+		t.Fatal(err)
+	}
+	if space.free.GetUCharAt(2, 5) != 0 {
+		t.Fatal("visible portion of an overhanging glyph should be reserved")
 	}
 }
 

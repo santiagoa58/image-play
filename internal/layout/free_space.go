@@ -74,37 +74,29 @@ func (s *FreeSpace) Reserve(size, center image.Point) bool {
 	return true
 }
 
-// ReserveMask removes only the nonzero pixels of a glyph footprint. Origin is
-// the top-left position of the mask in the free-space coordinate system.
-func (s *FreeSpace) ReserveMask(mask gocv.Mat, origin image.Point) (bool, error) {
-	if mask.Empty() || mask.Type() != gocv.MatTypeCV8UC1 {
-		return false, errors.New("glyph footprint requires a nonempty binary mask")
-	}
-	rect := image.Rectangle{Min: origin, Max: origin.Add(image.Pt(mask.Cols(), mask.Rows()))}
-	if !rect.In(image.Rect(0, 0, s.free.Cols(), s.free.Rows())) {
-		return false, nil
+// ReserveMask subtracts glyph pixels from free space at origin, clipping them
+// to the image when the rendered ink exceeds its measured fit rectangle.
+func (s *FreeSpace) ReserveMask(mask gocv.Mat, origin image.Point) error {
+	full := image.Rectangle{Min: origin, Max: origin.Add(image.Pt(mask.Cols(), mask.Rows()))}
+	rect := full.Intersect(image.Rect(0, 0, s.free.Cols(), s.free.Rows()))
+	if rect.Empty() {
+		return nil
 	}
 	area := s.free.Region(rect)
 	defer area.Close()
-	intersection := gocv.NewMat()
-	defer intersection.Close()
-	if err := gocv.BitwiseAnd(area, mask, &intersection); err != nil {
-		return false, err
-	}
-	if gocv.CountNonZero(intersection) != gocv.CountNonZero(mask) {
-		return false, nil
-	}
+	part := mask.Region(rect.Sub(origin))
+	defer part.Close()
 	inverse := gocv.NewMat()
 	defer inverse.Close()
-	if err := gocv.BitwiseNot(mask, &inverse); err != nil {
-		return false, err
+	if err := gocv.BitwiseNot(part, &inverse); err != nil {
+		return err
 	}
 	remaining := gocv.NewMat()
 	defer remaining.Close()
 	if err := gocv.BitwiseAnd(area, inverse, &remaining); err != nil {
-		return false, err
+		return err
 	}
-	return true, remaining.CopyTo(&area)
+	return remaining.CopyTo(&area)
 }
 
 // Snapshot returns a copy of the remaining free pixels for diagnostics.

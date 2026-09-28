@@ -101,18 +101,16 @@ func TestLargeWordReservesGlyphWhileSmallWordReservesRectangle(t *testing.T) {
 			if placed.Word.FontSize != size {
 				t.Fatalf("font size = %v, want %v", placed.Word.FontSize, size)
 			}
-			occupied := gocv.CountNonZero(*ctx.occupancy)
+			free := ctx.space.Snapshot()
+			occupied := gocv.CountNonZero(*ctx.safeZone) - gocv.CountNonZero(free)
+			free.Close()
 			rect := ctx.footprint(word, placed.Angle)
-			fit, err := ctx.fitFootprint(word, placed.Angle)
-			if err != nil {
-				t.Fatal(err)
-			}
 			regionCredit := 0
 			for _, count := range ctx.regions.occupied {
 				regionCredit += count
 			}
-			if regionCredit != fit.X*fit.Y {
-				t.Fatalf("region credited %d pixels, want fit rectangle of %d", regionCredit, fit.X*fit.Y)
+			if regionCredit != rect.X*rect.Y {
+				t.Fatalf("region credited %d pixels, want measured rectangle of %d", regionCredit, rect.X*rect.Y)
 			}
 			if size <= 24 && occupied != rect.X*rect.Y {
 				t.Fatalf("small word occupied %d pixels, want rectangle of %d", occupied, rect.X*rect.Y)
@@ -147,9 +145,11 @@ func TestGlyphReservationCoversRenderedPixelsAtBothAngles(t *testing.T) {
 			dc.Rotate(float64(angle) * math.Pi / 180)
 			dc.DrawStringAnchored(word.Text, 0, 0, 0.5, 0.5)
 			ink := dc.Image().(*image.RGBA)
+			free := ctx.space.Snapshot()
+			defer free.Close()
 			for y := 0; y < 100; y++ {
 				for x := 0; x < 100; x++ {
-					if ink.Pix[y*ink.Stride+x*4+3] != 0 && ctx.occupancy.GetUCharAt(y, x) == 0 {
+					if ink.Pix[y*ink.Stride+x*4+3] != 0 && ctx.safeZone.GetUCharAt(y, x) != 0 && free.GetUCharAt(y, x) != 0 {
 						t.Fatalf("rendered glyph pixel (%d,%d) was not reserved", x, y)
 					}
 				}

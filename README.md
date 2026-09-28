@@ -115,11 +115,11 @@ The main package boundaries are:
 
 The low-level geometry is isolated in `internal/layout`. `FreeSpace` keeps a
 binary map of the remaining silhouette. OpenCV's
-rectangular erosion returns every integer center at which a word's fit rectangle
-fits wholly within that map. For words larger than 24 px, this rectangle encloses
-the padded rendered glyph; only its glyph pixels are reserved. Smaller words
-reserve the rectangle. Tests compare legal centers against exhaustive rectangle
-checks on small irregular shapes.
+rectangular erosion returns every integer center at which a measured, padded
+word rectangle fits wholly within that map. Words at 24 px or smaller reserve
+the rectangle. Larger words reserve only their padded, rendered glyph pixels,
+leaving space around the letters for later words. Tests compare legal centers
+against exhaustive rectangle checks on small irregular shapes.
 
 The separate region policy draws on [ShapeWordle's](https://www.microsoft.com/en-us/research/publication/shapewordle-tailoring-wordles-using-shape-aware-archimedean-spirals/)
 use of distance and shape parts. Deep, separated points seed regions, and a
@@ -144,7 +144,7 @@ larger, harder-to-fit words are attempted before smaller gap-filling words.
 Fit checks consider both configured orientations across the complete remaining
 free space. At the chosen size, placement favors a less-filled shape region,
 then the configured orientation order (horizontal first by default), then the
-deepest legal center in that region. Each word credits its fit rectangle
+deepest legal center in that region. Each word credits its measured rectangle
 to region coverage, while the free-space mask reserves glyph pixels for larger
 words. A skipped word has no legal
 position in either orientation at the permitted minimum size.

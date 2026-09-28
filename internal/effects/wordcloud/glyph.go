@@ -21,13 +21,6 @@ type glyphFootprint struct {
 
 func (f *glyphFootprint) Close() { f.mask.Close() }
 
-// fitSize is a centered rectangle that contains every reserved glyph pixel.
-func (f glyphFootprint) fitSize() image.Point {
-	x := max(-f.offset.X, f.offset.X+f.mask.Cols())
-	y := max(-f.offset.Y, f.offset.Y+f.mask.Rows())
-	return image.Pt(2*x, 2*y)
-}
-
 func rasterizeGlyph(word textutil.Word, fontPath string, angle, padding int) (glyphFootprint, error) {
 	margin := int(math.Ceil(word.FontSize)) + padding + 4
 	width, height := int(math.Ceil(word.Width))+2*margin, int(math.Ceil(word.Height))+2*margin
@@ -58,9 +51,6 @@ func rasterizeGlyph(word textutil.Word, fontPath string, angle, padding int) (gl
 			}
 		}
 	}
-	// Keep enclosed letter counters clear of later words; only exterior gaps
-	// between and around letters should become available for packing.
-	fillGlyphHoles(pixels, width, height)
 	if padding > 0 {
 		kernel := gocv.GetStructuringElement(gocv.MorphRect, image.Pt(2*padding+1, 2*padding+1))
 		defer kernel.Close()
@@ -101,45 +91,4 @@ func rasterizeGlyph(word textutil.Word, fontPath string, angle, padding int) (gl
 	return glyphFootprint{
 		mask: trimmed, offset: offset,
 	}, nil
-}
-
-func fillGlyphHoles(pixels []uint8, width, height int) {
-	seen := make([]bool, len(pixels))
-	queue := make([]int, 0, width*2+height*2)
-	visit := func(x, y int) {
-		index := y*width + x
-		if pixels[index] == 0 && !seen[index] {
-			seen[index] = true
-			queue = append(queue, index)
-		}
-	}
-	for x := 0; x < width; x++ {
-		visit(x, 0)
-		visit(x, height-1)
-	}
-	for y := 0; y < height; y++ {
-		visit(0, y)
-		visit(width-1, y)
-	}
-	for head := 0; head < len(queue); head++ {
-		index := queue[head]
-		x, y := index%width, index/width
-		if x > 0 {
-			visit(x-1, y)
-		}
-		if x+1 < width {
-			visit(x+1, y)
-		}
-		if y > 0 {
-			visit(x, y-1)
-		}
-		if y+1 < height {
-			visit(x, y+1)
-		}
-	}
-	for index, pixel := range pixels {
-		if pixel == 0 && !seen[index] {
-			pixels[index] = 255
-		}
-	}
 }
