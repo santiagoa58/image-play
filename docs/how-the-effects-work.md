@@ -405,6 +405,10 @@ footprintWidth  = ceil(measuredWidth  + 2 × padding)
 footprintHeight = ceil(measuredHeight + 2 × padding)
 ```
 
+For words larger than 24 px, the fit rectangle instead encloses every padded
+rendered glyph pixel about the word's center. This accounts for any ink beyond
+the font's measured width or height.
+
 `ceil` means round upward. Footprint dimensions are kept at least 1 pixel.
 Allowed rotations are 0 and 90 degrees. These preserve axis-aligned rectangles,
 which makes complete collision checks straightforward.
@@ -414,8 +418,8 @@ belongs to each word; erosion belongs to the silhouette.
 
 Rectangles simplify fit checks and make the geometry independently verifiable.
 For words at 24 px or smaller, that rectangle is also reserved. For larger
-words, the renderer's glyph pixels are rasterized once after choosing a center,
-enclosed letter holes are filled, and padding expands the shape. Only those
+words, the rendered glyph pixels are rasterized, enclosed letter holes are
+filled, and padding expands the shape. Only those
 pixels are removed from free space. Space around and between large letters can
 then hold later words, while small words keep the faster rectangular path.
 
@@ -462,11 +466,11 @@ It owns `width` columns starting at `left` and `height` rows starting at `top`.
 The erosion anchor and reservation use the same convention. Matching those two
 operations prevents one-pixel disagreements about what a center represents.
 
-**“Exact fit” refers to these measured, padded rectangles on the integer grid.**
+**“Exact fit” refers to these fit rectangles on the integer grid.**
 The glyph reservation for larger words changes subsequent free space, but not
-the placement search. It does not mean perfect image
-segmentation or a globally optimal arrangement. Tests compare the center maps against checking
-every rectangle pixel directly on small irregular shapes.
+the placement search. It does not mean perfect image segmentation or a globally
+optimal arrangement. Tests compare the center maps against checking every
+rectangle pixel directly on small irregular shapes.
 
 Code: [free-space geometry](../internal/layout/free_space.go) and
 [exhaustive comparison tests](../internal/layout/free_space_test.go).
@@ -533,8 +537,8 @@ region with only vertical positions can therefore win over another region with
 horizontal positions.
 
 A word may cross region boundaries. Regions rank its center; they are not walls
-around its rectangle. Region scoring credits the measured rectangle in each
-region it crosses, regardless of font stroke weight. The free-space mask uses
+around its rectangle. Region scoring credits the fit rectangle in each
+region it crosses. The free-space mask uses
 the glyph shape for larger words; fit checks still require the full rectangle.
 
 This policy draws on ShapeWordle's use of a distance field and multiple shape

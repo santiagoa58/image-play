@@ -103,12 +103,16 @@ func TestLargeWordReservesGlyphWhileSmallWordReservesRectangle(t *testing.T) {
 			}
 			occupied := gocv.CountNonZero(*ctx.occupancy)
 			rect := ctx.footprint(word, placed.Angle)
+			fit, err := ctx.fitFootprint(word, placed.Angle)
+			if err != nil {
+				t.Fatal(err)
+			}
 			regionCredit := 0
 			for _, count := range ctx.regions.occupied {
 				regionCredit += count
 			}
-			if regionCredit != rect.X*rect.Y {
-				t.Fatalf("region credited %d pixels, want measured rectangle of %d", regionCredit, rect.X*rect.Y)
+			if regionCredit != fit.X*fit.Y {
+				t.Fatalf("region credited %d pixels, want fit rectangle of %d", regionCredit, fit.X*fit.Y)
 			}
 			if size <= 24 && occupied != rect.X*rect.Y {
 				t.Fatalf("small word occupied %d pixels, want rectangle of %d", occupied, rect.X*rect.Y)

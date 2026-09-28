@@ -154,7 +154,7 @@ func (ctx *PlacementContext) tryPlaceAtSize(word textutil.Word) (PlacedWord, boo
 			return PlacedWord{}, false, err
 		}
 		defer glyph.Close()
-		if err := ctx.reserveGlyph(glyph, ctx.footprint(word, angle), center); err != nil {
+		if err := ctx.reserveGlyph(glyph, center); err != nil {
 			return PlacedWord{}, false, err
 		}
 	} else {
@@ -198,7 +198,7 @@ func (ctx *PlacementContext) fitFootprint(word textutil.Word, angle int) (image.
 	return glyph.fitSize(), nil
 }
 
-func (ctx *PlacementContext) reserveGlyph(glyph glyphFootprint, rectangle, center image.Point) error {
+func (ctx *PlacementContext) reserveGlyph(glyph glyphFootprint, center image.Point) error {
 	origin := center.Add(glyph.offset)
 	reserved, err := ctx.space.ReserveMask(glyph.mask, origin)
 	if err != nil {
@@ -207,9 +207,7 @@ func (ctx *PlacementContext) reserveGlyph(glyph glyphFootprint, rectangle, cente
 	if !reserved {
 		return errors.New("selected glyph could not be reserved")
 	}
-	// Keep the original rectangular region score. Only collision space uses the
-	// glyph shape; region ranking is independent of the font's stroke weight.
-	ctx.regions.reserve(layout.RectAt(center, rectangle))
+	ctx.regions.reserve(layout.RectAt(center, glyph.fitSize()))
 	rect := image.Rectangle{Min: origin, Max: origin.Add(image.Pt(glyph.mask.Cols(), glyph.mask.Rows()))}
 	occupied := ctx.occupancy.Region(rect)
 	defer occupied.Close()
