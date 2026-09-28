@@ -76,6 +76,18 @@ func TestSampleWordColorKeepsDominantSourceHue(t *testing.T) {
 	}
 }
 
+func TestBoostWordColorSaturationMakesColorMoreVividAndKeepsGrayNeutral(t *testing.T) {
+	colorful := color.NRGBA{R: 120, G: 80, B: 40, A: 200}
+	if got, want := boostWordColorSaturation(colorful), (color.NRGBA{R: 130, G: 78, B: 26, A: 200}); got != want {
+		t.Fatalf("boosted color = %v, want %v", got, want)
+	}
+
+	gray := color.NRGBA{R: 90, G: 90, B: 90, A: 255}
+	if got := boostWordColorSaturation(gray); got != gray {
+		t.Fatalf("boosted gray = %v, want unchanged %v", got, gray)
+	}
+}
+
 func TestContrastingWordColorMovesAwayFromEitherCanvas(t *testing.T) {
 	gray := color.NRGBA{R: 48, G: 48, B: 48, A: 255}
 	got := contrastingWordColor(gray, color.Black)
