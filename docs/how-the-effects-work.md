@@ -41,21 +41,21 @@ show what this project actually implements.
   <tr>
     <td><img src="../testdata/images/gen-img-couple.png" width="260" alt="Source portrait of a couple"></td>
     <td><img src="assets/examples/gen-img-couple-wordcloud.png" width="260" alt="Words arranged within the portrait silhouette"></td>
-    <td><img src="assets/examples/gen-img-couple-textmosaic-preview.png" width="260" alt="Portrait brightness reconstructed using a grid of characters on a dark preview background"></td>
+    <td><img src="assets/examples/gen-img-couple-textmosaic-preview.png" width="260" alt="Portrait colors clipped through rows of characters on a light preview background"></td>
   </tr>
 </table>
 
 In the word cloud, look for words of different sizes and directions. In the
-mosaic, look for rows of characters whose shades reveal the portrait. Zooming
+mosaic, look for rows of characters whose colors reveal the portrait. Zooming
 out helps you see the image; zooming in helps you see the text.
 
 | Question | Word cloud | Text mosaic |
 | --- | --- | --- |
-| What comes from the image? | A silhouette, interior distances, and local word colors | A brightness and transparency sample for each grid position |
+| What comes from the image? | A silhouette, interior distances, and local word colors | Original color and transparency at every glyph pixel |
 | What comes from the text? | Distinct words and occurrence counts | Characters in their original order, with whitespace simplified |
-| What changes between pieces of text? | Font size, position, orientation, and color | Drawing color and opacity; the font size stays fixed within one mosaic |
+| What changes between pieces of text? | Font size, position, orientation, and color | Letter shapes and transparent gaps; the font size stays fixed within one mosaic |
 | What is the background? | Opaque black or white, inferred from the image border | Transparent between characters |
-| What is preserved? | The selected shape and a visual ordering of words | An approximation of the image's light and dark structure |
+| What is preserved? | The selected shape and a visual ordering of words | Image colors and details inside each letter |
 
 Both commands need an image, a text file, and a font. From the repository root,
 with Go and OpenCV set up as described in the [README](../README.md#development),
@@ -76,8 +76,8 @@ For text mosaic, change the effect and output path, use
 The image and text paths stay the same. The quotation marks keep the mono font
 path together as one command argument.
 
-Open the mosaic over a dark background to see its light characters clearly.
-Its PNG is transparent; the dark background in the preview above is for display.
+Open the mosaic over a background that contrasts with the source subject.
+Its PNG is transparent; the light background in the preview above is for display.
 If you omit `-out`, the program writes beside the input, for example
 `gen-img-couple_wordcloud.png` or `gen-img-couple_textmosaic.png`.
 
@@ -105,7 +105,7 @@ color exists, but it should not determine the visible shape.
 brightness or luminance in this guide. The conversion weights green more than
 red, and red more than blue, rather than simply averaging the channels.
 
-The mosaic's image library uses this formula, rounded to an 8-bit value:
+For example, a grayscale conversion can use this formula, rounded to an 8-bit value:
 
 ```text
 gray = 0.299 × red + 0.587 × green + 0.114 × blue
@@ -115,7 +115,8 @@ For an opaque pure-red pixel `(255, 0, 0)`, this gives about 76. A pure-green
 pixel gives about 150. Equal channel values already describe a gray, so
 `(100, 100, 100)` stays near 100. This is a practical weighted conversion of
 stored color values, rather than a full physical model of light.
-See [imaging's grayscale implementation](https://github.com/disintegration/imaging/blob/v1.6.2/adjust.go).
+The word cloud uses brightness to identify a shape. The text mosaic keeps the
+original color image. See [imaging's grayscale implementation](https://github.com/disintegration/imaging/blob/v1.6.2/adjust.go).
 
 ### Masks: a permission map
 
@@ -146,7 +147,8 @@ every word will be that many pixels wide or tall.
 
 At the same font size, `mountain` usually needs more width than `sky`. A
 **monospace font** gives characters a consistent horizontal advance, like cells
-in a typewriter. That makes it especially useful for the mosaic's regular grid.
+in a typewriter. The mosaic also supports proportional fonts by measuring each
+character's advance.
 A proportional font gives different advances to different characters.
 
 The project uses `gg` to measure and draw text. Its measurements are layout
@@ -598,148 +600,73 @@ Code: [word-cloud orchestration](../internal/effects/wordcloud/wordcloud.go) and
 
 ## 4. Building a text mosaic
 
-Imagine placing a sheet of evenly spaced letters over a photograph. At each
-letter's position, pick up the photograph's shade and use it to draw the letter.
-Viewed from a distance, those shades suggest the original picture.
-
-There is no word counting or rectangle packing in this effect. Its geometry
-is a regular grid.
+Imagine laying rows of text over a photograph, then using the letters as a
+stencil. The photograph is visible only inside the letter shapes. Unlike a
+per-character color sample, this preserves color changes and sharp image edges
+*within* each letter. The result is a transparent PNG.
 
 ```mermaid
 flowchart LR
     image[Source image] --> resize[Optional resize]
     resize --> contrast[Optional contrast adjustment]
-    contrast --> gray[Convert to grayscale]
+    contrast --> clip[Clip source through glyph mask]
     text[Text file] --> normalize[Collapse whitespace and repeat characters]
-    font[Font and base size] --> grid[Measure a regular grid]
-    gray --> draw[Sample each center and draw one character]
-    normalize --> draw
-    grid --> draw
-    draw --> png[Save a transparent PNG]
+    normalize --> mask[Draw antialiased white text mask]
+    font[Font and base size] --> mask
+    mask --> clip
+    clip --> png[Save transparent PNG]
 ```
 
 ### Step 1: Prepare the photograph
 
-`TargetWidth` optionally resizes the source, keeping its aspect ratio. For
-example, a 1200 × 800 image resized to width 600 becomes 600 × 400. Zero keeps
-the original dimensions. Resizing uses the imaging library's **Lanczos** filter:
-it combines nearby source samples to construct the resized image, rather than
-merely selecting every other pixel.
-See [imaging's resize implementation](https://github.com/disintegration/imaging/blob/v1.6.2/resize.go).
-
-`ContrastPercent` optionally changes the separation between light and dark
-values before grayscale conversion. Positive values increase contrast; negative
-values pull shades toward the middle. Zero leaves contrast unchanged. Strong
-positive adjustments can lose subtle shading by pushing values to black or
-white. This is a tonal adjustment, not a sharpening operation.
-See [imaging's contrast implementation](https://github.com/disintegration/imaging/blob/v1.6.2/adjust.go).
-
-Finally, grayscale conversion makes the red, green, and blue values equal.
-The mosaic therefore reproduces brightness rather than source hues.
-
-Code: [source preparation](../internal/effects/textmosaic/image.go).
+`TargetWidth` optionally resizes the source while preserving its aspect ratio.
+The resize uses imaging's Lanczos filter. `ContrastPercent` optionally adjusts
+contrast; zero keeps the original values. Neither step discards the source's
+red, green, or blue channels. A bright orange source pixel can therefore remain
+orange inside a letter. See [source preparation](../internal/effects/textmosaic/image.go).
 
 ### Step 2: Make a repeating character stream
 
-Whitespace is simplified, while case and punctuation are retained. For example:
+Whitespace is collapsed to single spaces, and one trailing space separates
+repetitions of the text. For example, `"Hello\nworld"` becomes
+`"Hello world Hello world ..."`. The `-uppercase` flag converts the text before
+it is repeated. Go runes keep multibyte characters intact, although complex
+scripts still depend on font coverage and shaping. See [text normalization](../internal/effects/textmosaic/text.go).
 
-```text
-Input:       " Hello\n\nworld!\tCafé "
-Normalized:  "Hello world! Café "
-Repeated:    "Hello world! Café Hello world! Café ..."
-```
+### Step 3: Lay out the text
 
-A trailing space separates the end of one repetition from the next. The code
-uses Go **runes**, which represent Unicode code points, rather than stepping
-through individual UTF-8 bytes. This keeps a character such as `é` from being
-split into bytes. A rune is not necessarily a complete user-perceived symbol:
-combining accents and some emoji use several code points. Font coverage and
-text shaping still affect how those appear.
+The default base font size is 14. The renderer scales it with the processed
+image width, then measures each glyph's advance in the chosen font. Characters
+flow tightly across each row rather than occupying equal-width `M` cells. Rows
+are spaced at 1.08 times the font height. This works for both proportional and
+monospace fonts, while the font and its glyph shapes still determine how much
+of the photograph shows through. See [font layout](../internal/effects/textmosaic/render.go).
 
-Spaces occupy grid positions even though they draw no ink. No stop-word
-filtering occurs, because the text is a drawing material rather than a list
-of topics to rank.
+| Processed image width | Font-size multiplier |
+| --- | ---: |
+| Up to 720 px | 0.75 |
+| 721–1079 px | 1.0 |
+| 1080–2159 px | 1.5 |
+| 2160–3599 px | 2.0 |
+| 3600–4799 px | 3.5 |
+| 4800–7199 px | 4.0 |
+| 7200 px and above | 4.5 |
 
-Code: [text loading and normalization](../internal/effects/textmosaic/text.go).
+### Step 4: Clip the source through the letters
 
-### Step 3: Measure the grid
+The renderer draws white text on a transparent mask. It then combines each
+source pixel with the matching mask pixel. Mask coverage of zero makes the
+output transparent; full coverage keeps the source color and alpha; partial
+coverage makes a smooth letter edge. An image boundary inside a glyph remains
+in that glyph, and partially transparent sources keep their transparency.
 
-The default base font size is 14. The implementation multiplies it by a factor
-chosen from the processed image width. These are established visual-density
-settings, not a mathematical rule that every image effect must use.
-
-| Processed image width | Multiplier | Actual size with base 14 |
-| --- | ---: | ---: |
-| Up to 720 px | 0.75 | 10.5 |
-| 721–1079 px | 1.0 | 14 |
-| 1080–2159 px | 1.5 | 21 |
-| 2160–3599 px | 2.0 | 28 |
-| 3600–4799 px | 3.5 | 49 |
-| 4800–7199 px | 4.0 | 56 |
-| 7200 px and above | 4.5 | 63 |
-
-The font is loaded at that actual size. The width of `MMMMMMMMMM` is measured
-and divided by ten to estimate one cell's width. Cell height is measured text
-height times 1.4, leaving vertical spacing. Both values round upward and are
-at least 1 pixel.
-
-For an illustrative measurement of 8 pixels per character and 14 pixels in
-height, the cell becomes 8 × 20: `ceil(14 × 1.4) = 20`. A 160 × 100 canvas then
-has 20 columns and 5 rows of centers. The first center is half a cell from the
-top and left, using integer division; subsequent centers are one cell apart.
-Partial edge cells can occur when dimensions are not exact multiples.
-
-A monospace font keeps the grid visually regular. A proportional font can be
-loaded, but measuring `M` does not make other glyphs equally wide. A font whose
-cell is larger than the image produces an error.
-
-### Step 4: Sample a shade and draw a character
-
-The renderer walks rows from top to bottom, and each row from left to right.
-At each center it samples the processed source image and draws the next rune
-with that sampled color and alpha. When the text ends, it wraps to the beginning.
-
-For opaque pixels, the rule is easy to picture:
-
-| Sample at a grid center | Character drawn there |
-| --- | --- |
-| Dark gray, value 30 | Dark-gray character |
-| Mid gray, value 128 | Mid-gray character |
-| Light gray, value 230 | Light-gray character |
-| Fully transparent | Nothing; the text index does not advance |
-
-The font size and grid spacing remain fixed across that image. Brightness does
-not choose a denser character such as `@` or a lighter one such as `.`. The next
-character comes from your text; its drawing shade comes from the photograph.
-This distinguishes the effect from ASCII-art algorithms that choose symbols
-according to their ink density.
-
-Sampling uses one pixel at the center, not an average of every pixel in the
-cell. A small feature between centers can therefore be missed. Different
-glyphs also have different amounts of ink, so this is an artistic approximation
-of the image rather than a pixel-perfect brightness reconstruction.
-
-### Step 5: Understand the transparent result
-
-The output starts as a transparent canvas. Only drawn glyphs contribute visible
-pixels; spaces and gaps remain transparent. Glyph edges use partial coverage
-(**antialiasing**) to look smoother on the pixel grid.
-
-On a black background, light glyphs stand out and dark glyphs blend into the
-background. On white, the same light glyphs can be difficult to see. Background
-choice changes the impression because much of the final image is still empty.
-The renderer does not paint the original photograph underneath the text.
-
-A detail for developers: `sampleRGBA` divides Go's `Color.RGBA()` channels by
-65535 to obtain values from 0 to 1. Go returns RGB values already multiplied by
-alpha, and this renderer passes those values along with alpha to `gg.SetRGBA`.
-It does not undo that multiplication. Partially transparent samples therefore
-should not be interpreted as a simple copy of the original unmultiplied color.
-Opaque samples follow the shade examples above.
-See [Go's Color contract](https://pkg.go.dev/image/color#Color).
-
-Code: [grid measurement, sampling, and drawing](../internal/effects/textmosaic/render.go)
-and [file-to-PNG pipeline](../internal/effects/textmosaic/textmosaic.go).
+The output has no painted background. Its appearance therefore depends on the
+background on which the PNG is shown: black source regions disappear against
+black, and white regions disappear against white. The effect preserves source
+colors and cannot make every source pixel contrast with every possible viewing
+background. Use a contrasting background when presenting it. See [mask
+rendering](../internal/effects/textmosaic/render.go) and [file-to-PNG
+pipeline](../internal/effects/textmosaic/textmosaic.go).
 
 ## 5. Predicting and adjusting the results
 
@@ -749,12 +676,12 @@ Try these small experiments using the existing CLI commands:
 
 1. **Repeat one content word several times in the text.** The cloud's counts and
    target sizes change; its layout can change too. The mosaic repeats a different
-   character stream but still samples shades from the same image.
+   character stream but still clips the same source image.
 2. **Use a wider font.** Cloud footprints get wider, so words may shrink, rotate,
-   or be skipped. Mosaic cell measurements change, affecting the grid density.
+   or be skipped. Mosaic character advances change, affecting text density.
 3. **Use a silhouette with a thin neck and broad body.** Large cloud words fit
    more readily in the body. A tiny word might fit the neck after larger words
-   fail there. The mosaic samples both areas wherever its grid centers land.
+   fail there. The mosaic draws text across both areas.
 4. **View the mosaic on black and white backgrounds.** Its pixels have not
    changed, but the contrast against the transparent gaps has.
 
@@ -817,9 +744,10 @@ CLI remains `go run ./cmd/mosaic`.
 
 | Text-mosaic setting | Default | What a change means |
 | --- | --- | --- |
-| `TargetWidth` | 0, keep source width | Resize before measuring and sampling; preserve aspect ratio |
-| `BaseFontSize` | 14 | Larger values mean larger cells and usually less image detail |
+| `TargetWidth` | 0, keep source width | Resize before drawing text; preserve aspect ratio |
+| `BaseFontSize` | 14 | Larger values mean larger letters and usually less image detail |
 | `ContrastPercent` | 0 | From −100 to 100; increase or decrease tonal separation |
+| `Uppercase` | false | Convert repeated text to uppercase |
 
 To try the mosaic controls, replace the contents of `learn.go` with this example
 and run the same command. It resizes to 600 px wide, uses base size 12, and adds
@@ -885,7 +813,8 @@ letters but already belong to a small word's rectangle. Large minimum size,
 generous padding, narrow regions, and greedy earlier placements can each reduce
 the final count.
 
-If a mosaic loses a small feature, compare its size with the cell spacing. If it
+If a mosaic loses a small feature, compare its size with the letter strokes and
+transparent gaps. If it
 looks blank, check the viewing background and the source's transparency. If it
 fails with a font-size error, reduce the base size or use a larger image.
 
@@ -907,7 +836,7 @@ where each stage turns one useful representation into the next.
 | Draw the accepted cloud | [`render.go`](../internal/effects/wordcloud/render.go) |
 | Coordinate the mosaic stages | [`textmosaic.go`](../internal/effects/textmosaic/textmosaic.go) |
 | Prepare mosaic source and text | [`image.go`](../internal/effects/textmosaic/image.go), [`text.go`](../internal/effects/textmosaic/text.go) |
-| Measure, sample, and draw the mosaic | [`render.go`](../internal/effects/textmosaic/render.go) |
+| Measure, mask, and clip the mosaic | [`render.go`](../internal/effects/textmosaic/render.go) |
 
 For the cloud, read `Place` as a short workflow: try the desired size, find a
 smaller fitting word if necessary, and place it. Follow `largestFittingFontSize`
@@ -944,13 +873,13 @@ Try answering these before reading the answers:
 scaling compresses count differences, and packing can shrink words further.
 Regions rank centers and track usage; they do not confine footprints. Shorter
 words need differently shaped rectangles and can fit remaining gaps. Mosaic
-characters come from the text in order; sampled pixels set their color. The
+characters come from the text in order; source pixels inside the glyphs set their color. The
 viewing background shows through the transparent gaps.
 
 A useful explanation to give someone else is: “The cloud counts words and fits
 padded word rectangles into a selected shape, reserving glyph pixels for large
-words and coloring the text from the image. The mosaic repeats characters on a
-grid and colors each one using the image beneath its center.” You can now
+words and coloring the text from the image. The mosaic repeats characters in
+rows and clips the image through their shapes.” You can now
 expand either sentence into the steps and tradeoffs behind it.
 
 ## 7. References and attribution
@@ -977,7 +906,7 @@ operations or identify documented design influences:
    source of our full packing algorithm. The linked `main` branch can evolve.
 6. **disintegration/imaging, v1.6.2, [adjustment source](https://github.com/disintegration/imaging/blob/v1.6.2/adjust.go)
    and [resize source](https://github.com/disintegration/imaging/blob/v1.6.2/resize.go).**
-   Actual dependency used for mosaic grayscale, contrast adjustment, and resizing.
+   Actual dependency used for mosaic contrast adjustment and resizing.
 7. **Michael Fogleman, `gg`, v1.3.0, [context source](https://github.com/fogleman/gg/blob/v1.3.0/context.go).**
    Actual drawing dependency used for font measurement, anchored text, and rendering.
 8. **Go standard library, [`image/color.Color`](https://pkg.go.dev/image/color#Color).**

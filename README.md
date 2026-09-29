@@ -41,7 +41,7 @@ mosaic uses Noto Sans Mono.
 </table>
 
 The previews are displayed smaller than their 1024 × 1024 output resolution.
-The text mosaic preview has a dark background so its light text is visible;
+The text mosaic preview has a light background for display;
 the [generated PNG](docs/assets/examples/gen-img-couple-textmosaic.png) has a
 transparent background.
 
@@ -152,10 +152,11 @@ permitted minimum size.
 
 ## Text mosaic
 
-The text-mosaic effect rebuilds an image from repeated text. The source is
-optionally resized and contrast-adjusted, converted to grayscale, then sampled
-at each text-grid position so the rendered characters reproduce the source
-luminance on a transparent canvas.
+The text-mosaic effect clips the original color image through a dense layer of
+repeated text. Each glyph acts as an antialiased mask: colors and edges within
+the letter come from the matching source pixels. The source can be resized or
+contrast-adjusted first. The output remains transparent outside the letters.
+`-uppercase` also applies to text mosaics.
 
 ```bash
 go run ./cmd/mosaic \

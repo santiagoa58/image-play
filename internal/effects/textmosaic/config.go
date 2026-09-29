@@ -25,8 +25,10 @@ type Config struct {
 	TargetWidth int
 	// BaseFontSize is the base font size before resolution-aware scaling.
 	BaseFontSize float64
-	// ContrastPercent adjusts source contrast before grayscale conversion.
+	// ContrastPercent adjusts source contrast before clipping through text.
 	ContrastPercent float64
+	// Uppercase converts the text to uppercase before repeating it.
+	Uppercase bool
 }
 
 // Option changes a Config created by NewConfig.
@@ -94,4 +96,9 @@ func WithBaseFontSize(size float64) Option {
 // WithContrastPercent sets the source contrast adjustment.
 func WithContrastPercent(percent float64) Option {
 	return func(cfg *Config) { cfg.ContrastPercent = percent }
+}
+
+// WithUppercase renders the source text in uppercase.
+func WithUppercase(uppercase bool) Option {
+	return func(cfg *Config) { cfg.Uppercase = uppercase }
 }

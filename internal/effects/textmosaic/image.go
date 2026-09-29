@@ -18,6 +18,6 @@ func prepareSource(source image.Image, cfg Config) image.Image {
 		processed = imaging.AdjustContrast(processed, cfg.ContrastPercent)
 	}
 
-	// Text mosaic represents source luminance rather than source color.
-	return imaging.Grayscale(processed)
+	// Keep the source colors: render clips this image through the text glyphs.
+	return processed
 }
