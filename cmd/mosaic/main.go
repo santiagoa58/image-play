@@ -40,7 +40,7 @@ func main() {
 
 func run() error {
 	var (
-		uppercase  = flag.Bool("uppercase", false, "Display wordcloud text in uppercase")
+		uppercase  = flag.Bool("uppercase", false, "Display text in uppercase")
 		effectName = flag.String(
 			"effect",
 			"",
@@ -142,6 +142,7 @@ func runEffect(selected effect, opts options) error {
 			textmosaic.WithOutputPath(opts.outputPath),
 			textmosaic.WithTextPath(opts.textPath),
 			textmosaic.WithFontPath(opts.fontPath),
+			textmosaic.WithUppercase(opts.uppercase),
 		)
 		if err := textmosaic.Generate(cfg); err != nil {
 			return fmt.Errorf("generate text mosaic: %w", err)

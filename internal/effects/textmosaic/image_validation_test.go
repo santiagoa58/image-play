@@ -14,7 +14,7 @@ func TestGenerateImageRejectsInvalidPaletteBeforeProcessing(t *testing.T) {
 		name string
 		cfg  Config
 	}{
-		{name: "grayscale", cfg: NewConfig()},
+		{name: "original colors", cfg: NewConfig()},
 		{name: "resize", cfg: NewConfig(WithTargetWidth(60))},
 		{name: "contrast", cfg: NewConfig(WithContrastPercent(15))},
 	} {

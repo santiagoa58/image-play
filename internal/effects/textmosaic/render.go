@@ -4,20 +4,20 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/draw"
 	"math"
+	"strings"
 
 	"github.com/fogleman/gg"
 )
 
 const (
-	verticalSpacingMultiplier = 1.4
-	gridOffsetFraction        = 0.5
-	maxColorChannelValue      = 65535.0
+	verticalSpacingMultiplier = 1.08
 )
 
 type fontMetrics struct {
 	charWidth  int
-	charHeight int
+	lineHeight int
 }
 
 func generateImage(source image.Image, text string, cfg Config) (image.Image, error) {
@@ -31,6 +31,9 @@ func generateImage(source image.Image, text string, cfg Config) (image.Image, er
 		return nil, err
 	}
 
+	if cfg.Uppercase {
+		text = strings.ToUpper(text)
+	}
 	runes, err := normalizeText(text)
 	if err != nil {
 		return nil, err
@@ -69,25 +72,32 @@ func render(
 	width := source.Bounds().Dx()
 	height := source.Bounds().Dy()
 
-	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
-	ctx := gg.NewContextForRGBA(canvas)
+	mask := image.NewRGBA(image.Rect(0, 0, width, height))
+	ctx := gg.NewContextForRGBA(mask)
 
 	metrics, err := measureFontGrid(ctx, fontPath, baseFontSize, width)
 	if err != nil {
 		return nil, err
 	}
-	if metrics.charWidth > width || metrics.charHeight > height {
+	if metrics.charWidth > width || metrics.lineHeight > height {
 		return nil, fmt.Errorf(
-			"font size is too large for the image: char cell is %dx%d, image is %dx%d",
+			"font size is too large for the image: minimum cell is %dx%d, image is %dx%d",
 			metrics.charWidth,
-			metrics.charHeight,
+			metrics.lineHeight,
 			width,
 			height,
 		)
 	}
 
-	drawText(ctx, source, text, metrics)
-	return ctx.Image(), nil
+	ctx.SetRGB(1, 1, 1)
+	drawTextMask(ctx, text, metrics, width, height)
+
+	// DrawMask multiplies the source alpha by the antialiased glyph coverage.
+	// Sampling the image here, rather than once per character, preserves sharp
+	// boundaries and color changes inside every glyph.
+	canvas := image.NewRGBA(mask.Bounds())
+	draw.DrawMask(canvas, canvas.Bounds(), source, source.Bounds().Min, mask, image.Point{}, draw.Src)
+	return canvas, nil
 }
 
 func measureFontGrid(
@@ -101,38 +111,30 @@ func measureFontGrid(
 		return fontMetrics{}, fmt.Errorf("load font face %q: %w", fontPath, err)
 	}
 
-	// Measure several monospace glyphs and average them to reduce rounding noise.
-	width, height := ctx.MeasureString("MMMMMMMMMM")
+	width, _ := ctx.MeasureString("M")
 	return fontMetrics{
-		charWidth:  max(1, int(math.Ceil(width/10))),
-		charHeight: max(1, int(math.Ceil(height*verticalSpacingMultiplier))),
+		charWidth:  max(1, int(math.Ceil(width))),
+		lineHeight: max(1, int(math.Ceil(ctx.FontHeight()*verticalSpacingMultiplier))),
 	}, nil
 }
 
-func drawText(
+func drawTextMask(
 	ctx *gg.Context,
-	source image.Image,
 	text []rune,
 	metrics fontMetrics,
+	width, height int,
 ) {
 	textIndex := 0
-
-	for y := metrics.charHeight / 2; y < source.Bounds().Dy(); y += metrics.charHeight {
-		for x := metrics.charWidth / 2; x < source.Bounds().Dx(); x += metrics.charWidth {
-			r, g, b, a := sampleRGBA(source, x, y)
-			if a == 0 {
-				continue
+	for y := metrics.lineHeight / 2; y < height; y += metrics.lineHeight {
+		x := 0.0
+		for x < float64(width) {
+			glyph := string(text[textIndex])
+			advance, _ := ctx.MeasureString(glyph)
+			if advance <= 0 {
+				advance = 1
 			}
-
-			ctx.SetRGBA(r, g, b, a)
-			ctx.DrawStringAnchored(
-				string(text[textIndex]),
-				float64(x),
-				float64(y),
-				gridOffsetFraction,
-				gridOffsetFraction,
-			)
-
+			ctx.DrawStringAnchored(glyph, x, float64(y), 0, 0.5)
+			x += advance
 			textIndex = (textIndex + 1) % len(text)
 		}
 	}
@@ -157,13 +159,4 @@ func calculateScaledFontSize(baseSize, imageWidth float64) float64 {
 	default:
 		return baseSize
 	}
-}
-
-func sampleRGBA(img image.Image, x, y int) (float64, float64, float64, float64) {
-	bounds := img.Bounds()
-	r, g, b, a := img.At(bounds.Min.X+x, bounds.Min.Y+y).RGBA()
-	return float64(r) / maxColorChannelValue,
-		float64(g) / maxColorChannelValue,
-		float64(b) / maxColorChannelValue,
-		float64(a) / maxColorChannelValue
 }

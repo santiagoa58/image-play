@@ -31,7 +31,7 @@ would not catch a panic in a worker goroutine. This is the condition reported
 in Dependabot alert #4 / CVE-2023-36308.
 
 The text-mosaic pipeline checks every visible pixel index in a paletted source
-before calling any imaging resize, contrast, or grayscale operation. Invalid
+before calling any imaging resize or contrast operation, or clipping the image. Invalid
 indexes return an error. Validation respects image bounds and stride, including
 subimages, and ignores pixels outside the source rectangle. Other image types
 do not need this palette check. The word-cloud path uses OpenCV and does not

@@ -3,6 +3,7 @@ package textmosaic
 import (
 	"image"
 	"image/color"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -188,6 +189,97 @@ func TestGenerateImageHandlesNonZeroBounds(t *testing.T) {
 	}
 }
 
+func TestRenderClipsSourceAtEachGlyphPixel(t *testing.T) {
+	source := image.NewNRGBA(image.Rect(0, 0, 160, 100))
+	for y := range 100 {
+		for x := range 160 {
+			c := color.NRGBA{R: 245, G: 30, B: 20, A: 255}
+			if x%2 == 1 {
+				c = color.NRGBA{R: 20, G: 80, B: 245, A: 255}
+			}
+			source.SetNRGBA(x, y, c)
+		}
+	}
+
+	got, err := render(source, []rune("MMMM "), testFontPath(t), 14)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var red, blue int
+	var maxAlpha uint32
+	for y := range 100 {
+		for x := range 160 {
+			_, _, _, a := got.At(x, y).RGBA()
+			if a > maxAlpha {
+				maxAlpha = a
+			}
+			if a < 50000 {
+				continue
+			}
+			want := source.NRGBAAt(x, y)
+			actual := color.NRGBAModel.Convert(got.At(x, y)).(color.NRGBA)
+			if math.Abs(float64(actual.R)-float64(want.R)) > 2 || math.Abs(float64(actual.G)-float64(want.G)) > 2 || math.Abs(float64(actual.B)-float64(want.B)) > 2 {
+				t.Fatalf("glyph pixel at (%d,%d) = %v, want source color %v", x, y, actual, want)
+			}
+			if x%2 == 0 {
+				red++
+			} else {
+				blue++
+			}
+		}
+	}
+	if red == 0 || blue == 0 {
+		t.Fatalf("expected both source colors inside glyphs; got red=%d blue=%d max alpha=%d", red, blue, maxAlpha)
+	}
+}
+
+func TestRenderPreservesStraightColorWithPartialSourceAlpha(t *testing.T) {
+	source := image.NewNRGBA(image.Rect(0, 0, 120, 80))
+	want := color.NRGBA{R: 220, G: 90, B: 35, A: 128}
+	for y := range 80 {
+		for x := range 120 {
+			source.SetNRGBA(x, y, want)
+		}
+	}
+	got, err := render(source, []rune("MMMM "), testFontPath(t), 14)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for y := range 80 {
+		for x := range 120 {
+			actual := color.NRGBAModel.Convert(got.At(x, y)).(color.NRGBA)
+			if actual.A < 120 {
+				continue
+			}
+			if actual.A > want.A || math.Abs(float64(actual.R)-float64(want.R)) > 3 || math.Abs(float64(actual.G)-float64(want.G)) > 3 || math.Abs(float64(actual.B)-float64(want.B)) > 3 {
+				t.Fatalf("partially transparent glyph pixel at (%d,%d) = %v, want source color near %v", x, y, actual, want)
+			}
+			return
+		}
+	}
+	t.Fatal("no glyph pixel with high coverage")
+}
+
+func TestGenerateImageUppercaseMatchesUppercaseText(t *testing.T) {
+	source := solidImage(160, 100, color.RGBA{R: 255, G: 80, B: 20, A: 255})
+	fontPath := testFontPath(t)
+	got, err := generateImage(source, "hello world", NewConfig(WithFontPath(fontPath), WithUppercase(true)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := generateImage(source, "HELLO WORLD", NewConfig(WithFontPath(fontPath)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for y := range 100 {
+		for x := range 160 {
+			if got.At(x, y) != want.At(x, y) {
+				t.Fatalf("uppercase image differs at (%d,%d)", x, y)
+			}
+		}
+	}
+}
+
 func TestNormalizeText(t *testing.T) {
 	got, err := normalizeText(" hello\n\nworld\tпривет  café ")
 	if err != nil {
@@ -222,16 +314,6 @@ func TestCalculateScaledFontSize(t *testing.T) {
 				t.Fatalf("calculateScaledFontSize() = %v, want %v", got, tt.want)
 			}
 		})
-	}
-}
-
-func TestSampleRGBAHandlesNonZeroBounds(t *testing.T) {
-	img := image.NewRGBA(image.Rect(10, 20, 11, 21))
-	img.Set(10, 20, color.RGBA{R: 255, G: 128, B: 64, A: 255})
-
-	r, g, b, a := sampleRGBA(img, 0, 0)
-	if r <= 0.99 || g <= 0.49 || g >= 0.51 || b <= 0.24 || b >= 0.26 || a <= 0.99 {
-		t.Fatalf("sampleRGBA() = (%v,%v,%v,%v), want approximately (1,.5,.25,1)", r, g, b, a)
 	}
 }
 
