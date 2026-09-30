@@ -619,11 +619,11 @@ flowchart LR
 
 ### Step 1: Prepare the photograph
 
-`TargetWidth` optionally resizes the source while preserving its aspect ratio.
-The resize uses imaging's Lanczos filter. `ContrastPercent` optionally adjusts
-contrast; zero keeps the original values. Neither step discards the source's
-red, green, or blue channels. A bright orange source pixel can therefore remain
-orange inside a letter. See [source preparation](../internal/effects/textmosaic/image.go).
+`TargetWidth` optionally resizes the working source while preserving its aspect
+ratio. The resize uses imaging's Lanczos filter. `ContrastPercent` optionally
+adjusts contrast; zero keeps the original values. Neither step discards the
+source's red, green, or blue channels. A bright orange source pixel can
+therefore remain orange inside a letter. See [source preparation](../internal/effects/textmosaic/image.go).
 
 ### Step 2: Make a repeating character stream
 
@@ -637,10 +637,20 @@ scripts still depend on font coverage and shaping. See [text normalization](../i
 
 The default base font size is 14. The renderer scales it with the processed
 image width, then measures each glyph's advance in the chosen font. Characters
-flow tightly across each row rather than occupying equal-width `M` cells. Rows
-are spaced at 1.08 times the font height. This works for both proportional and
-monospace fonts, while the font and its glyph shapes still determine how much
-of the photograph shows through. See [font layout](../internal/effects/textmosaic/render.go).
+flow tightly across each row rather than occupying equal-width `M` cells. By
+default, letter spacing subtracts `0.08em` from each advance, while word
+spacing adds `0.10em` after spaces. This keeps letters close without merging
+words. Negative values pack more letters into the image; the advance is kept at
+least one pixel so drawing always progresses.
+Rows are spaced at 1.08 times the font height. This works for both proportional
+and monospace fonts, while the font and its glyph shapes still determine how
+much of the photograph shows through. See [font layout](../internal/effects/textmosaic/render.go).
+
+`OutputScale` defaults to 2. The prepared image is resized again, and the
+letters are drawn at the same larger scale. Upscaling stops at 4096 pixels on
+the longest side unless the source is already larger. This creates a larger
+PNG with smoother text edges when zoomed or printed. It does not reconstruct
+missing source-image detail.
 
 | Processed image width | Font-size multiplier |
 | --- | ---: |
@@ -744,10 +754,13 @@ CLI remains `go run ./cmd/mosaic`.
 
 | Text-mosaic setting | Default | What a change means |
 | --- | --- | --- |
-| `TargetWidth` | 0, keep source width | Resize before drawing text; preserve aspect ratio |
+| `TargetWidth` | 0, keep source width | Resize the working image before export scaling |
+| `OutputScale` | 2 | Scale image and text together, capped at a 4096 px longest side |
 | `BaseFontSize` | 14 | Larger values mean larger letters and usually less image detail |
 | `ContrastPercent` | 0 | From −100 to 100; increase or decrease tonal separation |
 | `Uppercase` | false | Convert repeated text to uppercase |
+| `LetterSpacing` | −0.08em | Extra advance after every character; a more negative value tightens it |
+| `WordSpacing` | +0.10em | Additional advance after spaces; increase it for clearer word breaks |
 
 To try the mosaic controls, replace the contents of `learn.go` with this example
 and run the same command. It resizes to 600 px wide, uses base size 12, and adds
