@@ -40,7 +40,7 @@ mosaic uses Noto Sans Mono.
   </tr>
 </table>
 
-The previews are displayed smaller than their 1024 × 1024 output resolution.
+The previews are displayed smaller than the 2048 × 2048 text-mosaic output.
 The text mosaic preview has a light background for display;
 the [generated PNG](docs/assets/examples/gen-img-couple-textmosaic.png) has a
 transparent background.
@@ -106,7 +106,7 @@ The main package boundaries are:
 - `internal/effects/wordcloud`: the complete word-cloud effect pipeline and
   artistic placement policy.
 - `internal/effects/textmosaic`: the complete text-mosaic effect pipeline,
-  including source preparation, font-grid measurement, rendering, and output.
+  including source preparation, text layout, rendering, and output.
 - `internal/layout`: generic exact rectangular placement geometry.
 - `internal/mathutil`: small deterministic geometry and scaling helpers.
 - `cmd/mosaic`: CLI parsing and effect selection only.
@@ -157,6 +157,17 @@ repeated text. Each glyph acts as an antialiased mask: colors and edges within
 the letter come from the matching source pixels. The source can be resized or
 contrast-adjusted first. The output remains transparent outside the letters.
 `-uppercase` also applies to text mosaics.
+
+The default letters are slightly condensed, while word gaps remain easy to
+spot. Use `-letter-spacing` and `-word-spacing` to adjust them in font-size
+units (`em`); the defaults are `-0.08` and `0.10`. For clearer word breaks,
+try `-word-spacing 0.16`.
+
+Text mosaics render at 2× the prepared image resolution by default, up to
+4096 pixels on the longest side. Use `-output-scale 1` for the original
+resolution or a larger scale for more export pixels. The text is drawn at the
+larger size, so its edges remain crisp. Enlarging a low-resolution source
+cannot recover image detail that was never present.
 
 ```bash
 go run ./cmd/mosaic \

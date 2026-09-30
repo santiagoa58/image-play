@@ -1,6 +1,7 @@
 package textmosaic
 
 import (
+	"math"
 	"strings"
 	"testing"
 )
@@ -16,6 +17,12 @@ func TestNewConfigDefaults(t *testing.T) {
 	}
 	if cfg.ContrastPercent != 0 {
 		t.Fatalf("ContrastPercent = %v, want 0", cfg.ContrastPercent)
+	}
+	if cfg.LetterSpacing != defaultLetterSpacing || cfg.WordSpacing != defaultWordSpacing {
+		t.Fatalf("spacing defaults = (%v, %v), want (%v, %v)", cfg.LetterSpacing, cfg.WordSpacing, defaultLetterSpacing, defaultWordSpacing)
+	}
+	if cfg.OutputScale != defaultOutputScale {
+		t.Fatalf("OutputScale = %v, want %v", cfg.OutputScale, defaultOutputScale)
 	}
 }
 
@@ -36,9 +43,13 @@ func TestConfigValidate(t *testing.T) {
 		{name: "missing text", edit: func(c *Config) { c.TextPath = "" }, wantErr: "text path"},
 		{name: "missing font", edit: func(c *Config) { c.FontPath = "" }, wantErr: "font path"},
 		{name: "negative width", edit: func(c *Config) { c.TargetWidth = -1 }, wantErr: "target width"},
+		{name: "small output scale", edit: func(c *Config) { c.OutputScale = 0.5 }, wantErr: "output scale"},
+		{name: "nonfinite output scale", edit: func(c *Config) { c.OutputScale = math.Inf(1) }, wantErr: "output scale"},
 		{name: "invalid font size", edit: func(c *Config) { c.BaseFontSize = 0 }, wantErr: "base font size"},
 		{name: "low contrast", edit: func(c *Config) { c.ContrastPercent = -101 }, wantErr: "contrast percent"},
 		{name: "high contrast", edit: func(c *Config) { c.ContrastPercent = 101 }, wantErr: "contrast percent"},
+		{name: "invalid letter spacing", edit: func(c *Config) { c.LetterSpacing = math.NaN() }, wantErr: "letter spacing"},
+		{name: "invalid word spacing", edit: func(c *Config) { c.WordSpacing = math.Inf(1) }, wantErr: "word spacing"},
 	}
 
 	for _, tt := range tests {

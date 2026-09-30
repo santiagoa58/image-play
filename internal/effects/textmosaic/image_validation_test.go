@@ -36,7 +36,7 @@ func TestGenerateImageAcceptsValidPalettedSubimage(t *testing.T) {
 	source.Pix[0] = 1
 	subimage := source.SubImage(image.Rect(30, 40, 150, 100))
 
-	got, err := generateImage(subimage, "hello", NewConfig(WithFontPath(testFontPath(t))))
+	got, err := generateImage(subimage, "hello", NewConfig(WithFontPath(testFontPath(t)), WithOutputScale(1)))
 	if err != nil {
 		t.Fatal(err)
 	}

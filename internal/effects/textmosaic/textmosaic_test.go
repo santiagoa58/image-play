@@ -26,12 +26,12 @@ func TestGenerateImage(t *testing.T) {
 		wantErrSubstr string
 	}{
 		{
-			name:         "generates with original dimensions",
+			name:         "generates at twice the source resolution by default",
 			source:       solidImage(120, 80, color.RGBA{R: 255, A: 255}),
 			text:         "hello world",
 			config:       NewConfig(WithFontPath(fontPath)),
-			wantWidth:    120,
-			wantHeight:   80,
+			wantWidth:    240,
+			wantHeight:   160,
 			wantNonEmpty: true,
 		},
 		{
@@ -42,8 +42,8 @@ func TestGenerateImage(t *testing.T) {
 				WithFontPath(fontPath),
 				WithTargetWidth(100),
 			),
-			wantWidth:    100,
-			wantHeight:   50,
+			wantWidth:    200,
+			wantHeight:   100,
 			wantNonEmpty: true,
 		},
 		{
@@ -51,8 +51,8 @@ func TestGenerateImage(t *testing.T) {
 			source:       solidImage(160, 90, color.RGBA{B: 255, A: 255}),
 			text:         "hello привет café",
 			config:       NewConfig(WithFontPath(fontPath)),
-			wantWidth:    160,
-			wantHeight:   90,
+			wantWidth:    320,
+			wantHeight:   180,
 			wantNonEmpty: true,
 		},
 		{
@@ -60,8 +60,8 @@ func TestGenerateImage(t *testing.T) {
 			source:       solidImage(120, 80, color.RGBA{R: 255, A: 0}),
 			text:         "hello world",
 			config:       NewConfig(WithFontPath(fontPath)),
-			wantWidth:    120,
-			wantHeight:   80,
+			wantWidth:    240,
+			wantHeight:   160,
 			wantNonEmpty: false,
 		},
 		{
@@ -149,9 +149,9 @@ func TestGenerateWritesPNG(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open generated output: %v", err)
 	}
-	if result.Bounds().Dx() != 160 || result.Bounds().Dy() != 100 {
+	if result.Bounds().Dx() != 320 || result.Bounds().Dy() != 200 {
 		t.Fatalf(
-			"generated size = %dx%d, want 160x100",
+			"generated size = %dx%d, want 320x200",
 			result.Bounds().Dx(),
 			result.Bounds().Dy(),
 		)
@@ -169,7 +169,7 @@ func TestGenerateImageHandlesNonZeroBounds(t *testing.T) {
 	got, err := generateImage(
 		src,
 		"hello world",
-		NewConfig(WithFontPath(testFontPath(t))),
+		NewConfig(WithFontPath(testFontPath(t)), WithOutputScale(1)),
 	)
 	if err != nil {
 		t.Fatalf("generateImage() error = %v", err)
@@ -201,7 +201,7 @@ func TestRenderClipsSourceAtEachGlyphPixel(t *testing.T) {
 		}
 	}
 
-	got, err := render(source, []rune("MMMM "), testFontPath(t), 14)
+	got, err := render(source, []rune("MMMM "), NewConfig(WithFontPath(testFontPath(t)), WithOutputScale(1)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestRenderPreservesStraightColorWithPartialSourceAlpha(t *testing.T) {
 			source.SetNRGBA(x, y, want)
 		}
 	}
-	got, err := render(source, []rune("MMMM "), testFontPath(t), 14)
+	got, err := render(source, []rune("MMMM "), NewConfig(WithFontPath(testFontPath(t)), WithOutputScale(1)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,6 +258,71 @@ func TestRenderPreservesStraightColorWithPartialSourceAlpha(t *testing.T) {
 		}
 	}
 	t.Fatal("no glyph pixel with high coverage")
+}
+
+func TestTighterSpacingIncreasesTextCoverage(t *testing.T) {
+	source := solidImage(240, 80, color.RGBA{R: 255, A: 255})
+	fontPath := testFontPath(t)
+	text := []rune("M M ")
+
+	loose, err := render(source, text, NewConfig(
+		WithFontPath(fontPath),
+		WithOutputScale(1),
+		WithLetterSpacing(0),
+		WithWordSpacing(0),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tracked, err := render(source, text, NewConfig(
+		WithFontPath(fontPath),
+		WithOutputScale(1),
+		WithLetterSpacing(-0.08),
+		WithWordSpacing(0),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tight, err := render(source, text, NewConfig(
+		WithFontPath(fontPath),
+		WithOutputScale(1),
+		WithLetterSpacing(-0.08),
+		WithWordSpacing(-0.14),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+	spaced, err := render(source, text, NewConfig(
+		WithFontPath(fontPath),
+		WithOutputScale(1),
+		WithLetterSpacing(-0.08),
+		WithWordSpacing(0.10),
+	))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	looseInk := visiblePixelCount(loose)
+	trackedInk := visiblePixelCount(tracked)
+	tightInk := visiblePixelCount(tight)
+	if !(looseInk < trackedInk && trackedInk < tightInk) {
+		t.Fatalf("visible glyph pixels loose=%d tracked=%d tight=%d; want increasing coverage", looseInk, trackedInk, tightInk)
+	}
+	if spacedInk := visiblePixelCount(spaced); spacedInk >= trackedInk {
+		t.Fatalf("word spacing should reveal gaps: spaced=%d tracked=%d", spacedInk, trackedInk)
+	}
+}
+
+func TestOutputScaleCapsUpscaling(t *testing.T) {
+	if got := outputScaleForSize(1024, 1024, 2); got != 2 {
+		t.Fatalf("1024 px output scale = %v, want 2", got)
+	}
+	if got := outputScaleForSize(3000, 2000, 2); math.Abs(got-4096.0/3000.0) > 0.001 {
+		t.Fatalf("3000 px output scale = %v, want 4096/3000", got)
+	}
+	if got := outputScaleForSize(5000, 3000, 2); got != 1 {
+		t.Fatalf("5000 px output scale = %v, want 1", got)
+	}
 }
 
 func TestGenerateImageUppercaseMatchesUppercaseText(t *testing.T) {
@@ -338,6 +403,20 @@ func hasVisiblePixel(img image.Image) bool {
 		}
 	}
 	return false
+}
+
+func visiblePixelCount(img image.Image) int {
+	count := 0
+	bounds := img.Bounds()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			_, _, _, a := img.At(x, y).RGBA()
+			if a != 0 {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 func testFontPath(t *testing.T) string {
