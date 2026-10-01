@@ -838,8 +838,9 @@ where each stage turns one useful representation into the next.
 
 | Responsibility | Start reading here |
 | --- | --- |
-| Parse arguments and select an effect | [`cmd/mosaic/main.go`](../cmd/mosaic/main.go) |
+| Parse arguments and select an effect | [`cli.go`](../cmd/mosaic/cli.go), [`effects.go`](../cmd/mosaic/effects.go) |
 | Coordinate the word-cloud stages | [`wordcloud.go`](../internal/effects/wordcloud/wordcloud.go) |
+| Prepare and place word-cloud candidates | [`pipeline.go`](../internal/effects/wordcloud/pipeline.go) |
 | Select the silhouette | [`mask.go`](../internal/imageutil/mask.go) |
 | Rank words and measure them | [`countwords.go`](../internal/textutil/countwords.go), [`words.go`](../internal/textutil/words.go) |
 | Calibrate the maximum size | [`sizing.go`](../internal/effects/wordcloud/sizing.go) |
@@ -850,6 +851,7 @@ where each stage turns one useful representation into the next.
 | Coordinate the mosaic stages | [`textmosaic.go`](../internal/effects/textmosaic/textmosaic.go) |
 | Prepare mosaic source and text | [`image.go`](../internal/effects/textmosaic/image.go), [`text.go`](../internal/effects/textmosaic/text.go) |
 | Measure, mask, and clip the mosaic | [`render.go`](../internal/effects/textmosaic/render.go) |
+| Resolve output paths and directories | [`path.go`](../internal/output/path.go) |
 
 For the cloud, read `Place` as a short workflow: try the desired size, find a
 smaller fitting word if necessary, and place it. Follow `largestFittingFontSize`

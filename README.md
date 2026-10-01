@@ -103,6 +103,7 @@ The main package boundaries are:
   and distance transforms.
 - `internal/textutil`: tokenization, stop-word filtering, frequency counting,
   font-size scaling, and word measurement.
+- `internal/output`: shared output-path resolution and directory preparation.
 - `internal/effects/wordcloud`: the complete word-cloud effect pipeline and
   artistic placement policy.
 - `internal/effects/textmosaic`: the complete text-mosaic effect pipeline,

@@ -3,12 +3,10 @@ package textmosaic
 import (
 	"fmt"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/disintegration/imaging"
-	"github.com/santiagoa58/image-play/internal/textutil"
+	"github.com/santiagoa58/image-play/internal/output"
 )
 
 // Generate creates a text mosaic from cfg and writes the final PNG.
@@ -23,17 +21,9 @@ func Generate(cfg Config) error {
 	started := time.Now()
 	logger := slog.Default()
 
-	outputPath, err := textutil.ResolveOutputPath(
-		cfg.InputPath,
-		cfg.OutputPath,
-		"textmosaic",
-		".png",
-	)
+	outputPath, err := output.PreparePNG(cfg.InputPath, cfg.OutputPath, "textmosaic")
 	if err != nil {
-		return fmt.Errorf("resolve output path: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
-		return fmt.Errorf("create output directory: %w", err)
+		return err
 	}
 
 	text, err := loadText(cfg.TextPath)

@@ -1,24 +1,31 @@
-package textutil
+// Package output resolves effect output paths and prepares their directories.
+package output
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 )
 
-const (
-	initialScanBufferSize = 64 * 1024
-	maxScanLineSize       = 4 * 1024 * 1024
-)
+// PreparePNG resolves the output PNG path and creates its parent directory.
+func PreparePNG(in, out, suffix string) (string, error) {
+	path, err := ResolvePath(in, out, suffix, ".png")
+	if err != nil {
+		return "", fmt.Errorf("resolve output path: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return "", fmt.Errorf("create output directory: %w", err)
+	}
+	return path, nil
+}
 
-// ResolveOutputPath resolves an output file using ext as the required format.
+// ResolvePath resolves an output file using ext as the required format.
 //
 // If out is empty, the result is inputName_suffix.ext beside the input file.
 // Existing directories and paths ending in a separator are treated as output
 // directories. Explicit filenames without an extension receive ext.
-func ResolveOutputPath(in, out, suffix, ext string) (string, error) {
+func ResolvePath(in, out, suffix, ext string) (string, error) {
 	in = strings.TrimSpace(in)
 	if in == "" {
 		return "", fmt.Errorf("input path is required")
@@ -32,7 +39,7 @@ func ResolveOutputPath(in, out, suffix, ext string) (string, error) {
 		ext = "." + ext
 	}
 
-	defaultPath, err := buildDefaultOutputPath(filepath.Clean(in), suffix, ext)
+	defaultPath, err := buildDefaultPath(filepath.Clean(in), suffix, ext)
 	if err != nil {
 		return "", err
 	}
@@ -68,7 +75,7 @@ func ResolveOutputPath(in, out, suffix, ext string) (string, error) {
 	return outClean, nil
 }
 
-func buildDefaultOutputPath(inputClean, suffix, ext string) (string, error) {
+func buildDefaultPath(inputClean, suffix, ext string) (string, error) {
 	base := filepath.Base(inputClean)
 	inputExt := filepath.Ext(base)
 	name := strings.TrimSuffix(base, inputExt)
@@ -82,29 +89,4 @@ func buildDefaultOutputPath(inputClean, suffix, ext string) (string, error) {
 	}
 
 	return filepath.Join(filepath.Dir(inputClean), name+"_"+suffix+ext), nil
-}
-
-// ProcessLines streams path line by line and calls fn for each line.
-func ProcessLines(path string, fn func(line string) error) error {
-	f, err := os.Open(path)
-	if err != nil {
-		return fmt.Errorf("open file %q: %w", path, err)
-	}
-	defer f.Close()
-
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, initialScanBufferSize), maxScanLineSize)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if err := fn(line); err != nil {
-			return fmt.Errorf("process line %q: %w", line, err)
-		}
-	}
-
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("scan file %q: %w", path, err)
-	}
-
-	return nil
 }
